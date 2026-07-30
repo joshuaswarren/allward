@@ -1,0 +1,4 @@
+module CAllwardPTY {
+    header "include/callward_pty.h"
+    export *
+}

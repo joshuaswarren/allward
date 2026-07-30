@@ -1,0 +1,182 @@
+import AllwardCore
+import AllwardRemote
+import AllwardTerminal
+import Foundation
+
+public actor Session {
+    public nonisolated let id: SessionID
+    public nonisolated let latest: AsyncStream<TerminalSnapshot>
+
+    private let terminal: Terminal
+    private let channel: any RemoteChannel
+    private let continuation: AsyncStream<TerminalSnapshot>.Continuation
+    private var ingestionTask: Task<Void, Never>?
+    private var closed = false
+    private var writable = false
+
+    public init(
+        id: SessionID = SessionID(),
+        channel: any RemoteChannel,
+        geometry: TerminalGeometry,
+        clock: any AllwardClock,
+        scrollbackCapacity: Int = 10_000
+    ) {
+        self.id = id
+        self.channel = channel
+        terminal = Terminal(
+            geometry: geometry,
+            clock: clock,
+            scrollbackCapacity: scrollbackCapacity
+        )
+        let pair = AsyncStream.makeStream(
+            of: TerminalSnapshot.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        latest = pair.stream
+        continuation = pair.continuation
+    }
+
+    public func start() {
+        guard !closed, ingestionTask == nil else { return }
+        continuation.yield(terminal.snapshot())
+        let events = channel.events
+        ingestionTask = Task { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { break }
+                await self?.ingest(event)
+            }
+        }
+    }
+
+    @discardableResult
+    public func write(_ bytes: [UInt8]) -> Bool {
+        guard !closed, writable, !bytes.isEmpty else { return false }
+        channel.write(bytes)
+        return true
+    }
+
+    @discardableResult
+    public func paste(_ text: String) -> Bool {
+        guard !closed, writable, !text.isEmpty else { return false }
+        let modes = terminal.snapshot().modes
+        channel.write(InputEncoder.paste(text, modes: modes))
+        return true
+    }
+
+    public func resize(columns: Int, rows: Int) {
+        guard !closed, writable else { return }
+        let geometry = TerminalGeometry(columns: columns, rows: rows)
+        terminal.resize(to: geometry)
+        channel.resize(columns: geometry.columns, rows: geometry.rows)
+        continuation.yield(terminal.snapshot())
+    }
+
+    public func setSelection(_ selection: Selection?) {
+        terminal.setSelection(selection)
+    }
+
+    /// Scroll by a signed row delta. Positive scrolls back into history; the
+    /// terminal clamps the offset to the retained scrollback.
+    public func scroll(byRows rows: Int) {
+        let current = terminal.snapshot().scrollOffset
+        terminal.scroll(toOffset: max(0, current + rows))
+    }
+
+    public func selectedText() -> String? { terminal.selectedText() }
+
+    public func snapshot() -> TerminalSnapshot {
+        terminal.snapshot()
+    }
+
+    public func commandRegions() -> [CommandRegion] {
+        terminal.snapshot().commandRegions
+    }
+
+    func isOpen() -> Bool { !closed && writable }
+
+    public func close() {
+        guard !closed else { return }
+        closed = true
+        ingestionTask?.cancel()
+        ingestionTask = nil
+        channel.close()
+        continuation.finish()
+    }
+
+    func history(lines requestedLineCount: Int) -> [String] {
+        historyEntries(lines: requestedLineCount).map { $0.text }
+    }
+
+    func historyEntries(lines requestedLineCount: Int) -> [(line: LineID, text: String)] {
+        guard requestedLineCount > 0 else { return [] }
+        let original = terminal.snapshot()
+        var collected: [LineID: String] = [:]
+        var offset = 0
+        let maximumOffset = original.scrollbackCount
+
+        while offset <= maximumOffset && collected.count < requestedLineCount {
+            terminal.scroll(toOffset: offset)
+            let page = terminal.snapshot()
+            for (index, lineID) in page.rowIDs.enumerated() where lineID.rawValue != 0 {
+                collected[lineID] = page.plainText(row: index)
+            }
+            if offset == maximumOffset { break }
+            offset = min(maximumOffset, offset + page.geometry.rows)
+        }
+
+        terminal.scroll(toOffset: original.scrollOffset)
+        return collected.keys.sorted().suffix(requestedLineCount).compactMap { lineID in
+            collected[lineID].map { (lineID, $0) }
+        }
+    }
+
+    func nextFinishedCommand(
+        after existing: Set<LineID>,
+        timeout: Duration
+    ) async -> CommandRegion? {
+        let timer = ContinuousClock()
+        let deadline = timer.now.advanced(by: timeout)
+        while !closed, timer.now < deadline {
+            if let region = terminal.snapshot().commandRegions.first(where: {
+                !existing.contains($0.id) && $0.phase == .finished
+            }) {
+                return region
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
+    func encoded(_ keys: [AllwardTerminal.TerminalKey]) -> [UInt8] {
+        let modes = terminal.snapshot().modes
+        return keys.flatMap { InputEncoder.key($0, modes: modes) }
+    }
+
+    private func ingest(_ event: RemoteEvent) {
+        guard !closed else { return }
+        switch event {
+        case let .bytes(bytes):
+            terminal.consume(bytes)
+            let responses = terminal.pendingResponses
+            if !responses.isEmpty { channel.write(responses) }
+            continuation.yield(terminal.snapshot())
+        case let .state(state, _):
+            switch state {
+            case .ready, .degraded:
+                writable = true
+            case .closed:
+                writable = false
+                closed = true
+                ingestionTask = nil
+                continuation.finish()
+            case .idle, .resolving, .connecting, .authenticating, .reconnecting:
+                writable = false
+            }
+        case .exited, .failed:
+            closed = true
+            writable = false
+            ingestionTask = nil
+            continuation.finish()
+        }
+    }
+}
