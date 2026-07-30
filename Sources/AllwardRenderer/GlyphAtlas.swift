@@ -13,6 +13,7 @@ public struct GlyphAtlasKey: Hashable, Sendable {
     public let fontIdentity: String
     public let bold: Bool
     public let italic: Bool
+    public let cellSpan: Int
     public let presentation: GlyphPresentation
     public let scale: CGFloat
 
@@ -21,6 +22,7 @@ public struct GlyphAtlasKey: Hashable, Sendable {
         fontIdentity: String,
         bold: Bool,
         italic: Bool,
+        cellSpan: Int,
         presentation: GlyphPresentation,
         scale: CGFloat
     ) {
@@ -28,6 +30,7 @@ public struct GlyphAtlasKey: Hashable, Sendable {
         self.fontIdentity = fontIdentity
         self.bold = bold
         self.italic = italic
+        self.cellSpan = max(1, min(cellSpan, 2))
         self.presentation = presentation
         self.scale = scale
     }
@@ -129,10 +132,12 @@ private actor GlyphRasterizationQueue {
             var fontAscent: CGFloat = 0
             var fontDescent: CGFloat = 0
             let lineWidth = CTLineGetTypographicBounds(line, &fontAscent, &fontDescent, nil)
-            if grapheme.unicodeScalars.contains(where: { (0x2500 ... 0xF8FF).contains($0.value) }) {
-                print("FIT_DEBUG \(grapheme) fallback=\(isFallback) width=\(width) advance=\(lineWidth) font=\(key.fontIdentity)")
-            }
-            if isFallback, lineWidth > Double(width) + 0.5 {
+            if shouldFit(
+                grapheme: grapheme,
+                isFallback: isFallback,
+                lineWidth: lineWidth,
+                width: width
+            ) {
                 drawFitted(
                     line,
                     fontAscent: fontAscent,
@@ -157,6 +162,20 @@ private actor GlyphRasterizationQueue {
             bytesPerRow: bytesPerRow,
             bytes: Data(bytes)
         )
+    }
+
+    private func shouldFit(
+        grapheme: String,
+        isFallback: Bool,
+        lineWidth: Double,
+        width: Int
+    ) -> Bool {
+        let targetWidth = Double(width)
+        guard abs(lineWidth - targetWidth) > 0.5 else { return false }
+        if isFallback, lineWidth > targetWidth { return true }
+        return grapheme.unicodeScalars.allSatisfy {
+            (0x2500 ... 0x259F).contains($0.value) || (0xE000 ... 0xF8FF).contains($0.value)
+        }
     }
 
     private func drawFitted(

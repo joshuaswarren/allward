@@ -246,6 +246,7 @@ public struct SceneBuilder: Sendable {
             fontIdentity: fontIdentity,
             bold: bold,
             italic: italic,
+            cellSpan: span,
             presentation: presentation,
             scale: metrics.scale
         )

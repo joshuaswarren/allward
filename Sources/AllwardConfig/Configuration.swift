@@ -1,6 +1,12 @@
 import Foundation
 import Dispatch
-import Darwin
+
+#if canImport(Darwin)
+  import Darwin
+#elseif canImport(Glibc)
+  import Glibc
+#endif
+
 import AllwardCore
 import AllwardDesign
 import AllwardRooms
