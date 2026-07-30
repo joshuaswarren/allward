@@ -62,7 +62,8 @@ struct ResolvedGlyphFont {
 }
 
 public enum FontMetrics {
-    private static let installedFontDescriptors: [CTFontDescriptor] = {
+    // CoreText font descriptors are immutable despite lacking Sendable conformance.
+    nonisolated(unsafe) private static let installedFontDescriptors: [CTFontDescriptor] = {
         let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
         return names
             .filter { $0.caseInsensitiveCompare("LastResort") != .orderedSame }
