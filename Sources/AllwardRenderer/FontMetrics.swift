@@ -59,6 +59,7 @@ struct ResolvedGlyphFont {
     let font: CTFont
     let grapheme: String
     let atlasIdentity: String
+    let isFallback: Bool
 }
 
 public enum FontMetrics {
@@ -66,7 +67,7 @@ public enum FontMetrics {
     nonisolated(unsafe) private static let installedFontDescriptors: [CTFontDescriptor] = {
         let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
         return names
-            .filter { $0.caseInsensitiveCompare("LastResort") != .orderedSame }
+            .filter { !isLastResortName($0) }
             .map { CTFontDescriptorCreateWithNameAndSize($0 as CFString, 0) }
     }()
 
@@ -128,10 +129,12 @@ public enum FontMetrics {
             to: resolvedFont,
             covering: drawableGrapheme
         )
+        let isFallback = identity(of: resolvedFont) != identity(of: baseFont)
         return ResolvedGlyphFont(
             font: styledFont,
             grapheme: drawableGrapheme,
-            atlasIdentity: "\(identity(of: baseFont))>\(identity(of: styledFont))"
+            atlasIdentity: "\(identity(of: baseFont))>\(identity(of: styledFont))",
+            isFallback: isFallback,
         )
     }
 
@@ -172,24 +175,30 @@ public enum FontMetrics {
     private static func cascadingFont(baseFont: CTFont, grapheme: String) -> CTFont {
         let range = CFRange(location: 0, length: grapheme.utf16.count)
         let systemFont = CTFontCreateForString(baseFont, grapheme as CFString, range)
-        guard isLastResort(systemFont) else { return systemFont }
-
-        let attributes = [
-            kCTFontCascadeListAttribute as String: installedFontDescriptors,
-        ] as CFDictionary
-        let descriptor = CTFontDescriptorCreateWithAttributes(attributes)
-        let expandedBaseFont = CTFontCreateCopyWithAttributes(
-            baseFont,
-            CTFontGetSize(baseFont),
-            nil,
-            descriptor
-        )
-        return CTFontCreateForString(expandedBaseFont, grapheme as CFString, range)
+        guard font(systemFont, covers: grapheme) else {
+            let attributes = [
+                kCTFontCascadeListAttribute as String: installedFontDescriptors,
+            ] as CFDictionary
+            let descriptor = CTFontDescriptorCreateWithAttributes(attributes)
+            let expandedBaseFont = CTFontCreateCopyWithAttributes(
+                baseFont,
+                CTFontGetSize(baseFont),
+                nil,
+                descriptor
+            )
+            return CTFontCreateForString(expandedBaseFont, grapheme as CFString, range)
+        }
+        return systemFont
     }
 
     private static func isLastResort(_ font: CTFont) -> Bool {
-        let postScriptName = CTFontCopyPostScriptName(font) as String
-        return postScriptName.caseInsensitiveCompare("LastResort") == .orderedSame
+        isLastResortName(CTFontCopyPostScriptName(font) as String)
+    }
+
+    private static func isLastResortName(_ postScriptName: String) -> Bool {
+        postScriptName
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .caseInsensitiveCompare("LastResort") == .orderedSame
     }
 
     private static func applyingTraits(

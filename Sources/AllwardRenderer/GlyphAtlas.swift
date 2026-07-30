@@ -101,6 +101,7 @@ private actor GlyphRasterizationQueue {
         )
         let font = resolvedGlyph.font
         let grapheme = resolvedGlyph.grapheme
+        let isFallback = resolvedGlyph.isFallback
 
         bytes.withUnsafeMutableBytes { storage in
             guard let baseAddress = storage.baseAddress,
@@ -125,10 +126,27 @@ private actor GlyphRasterizationQueue {
             let line = CTLineCreateWithAttributedString(
                 NSAttributedString(string: grapheme, attributes: attributes)
             )
-            let lineWidth = CTLineGetTypographicBounds(line, nil, nil, nil)
-            let x = key.presentation == .colorEmoji ? max(0, (Double(width) - lineWidth) / 2) : 0
-            context.textPosition = CGPoint(x: x, y: CGFloat(height) - metrics.baseline)
-            CTLineDraw(line, context)
+            var fontAscent: CGFloat = 0
+            var fontDescent: CGFloat = 0
+            let lineWidth = CTLineGetTypographicBounds(line, &fontAscent, &fontDescent, nil)
+            if grapheme.unicodeScalars.contains(where: { (0x2500 ... 0xF8FF).contains($0.value) }) {
+                print("FIT_DEBUG \(grapheme) fallback=\(isFallback) width=\(width) advance=\(lineWidth) font=\(key.fontIdentity)")
+            }
+            if isFallback, lineWidth > Double(width) + 0.5 {
+                drawFitted(
+                    line,
+                    fontAscent: fontAscent,
+                    fontDescent: fontDescent,
+                    lineWidth: lineWidth,
+                    width: width,
+                    height: height,
+                    in: context
+                )
+            } else {
+                let x = key.presentation == .colorEmoji ? max(0, (Double(width) - lineWidth) / 2) : 0
+                context.textPosition = CGPoint(x: x, y: CGFloat(height) - metrics.baseline)
+                CTLineDraw(line, context)
+            }
         }
 
         return GlyphRaster(
@@ -139,6 +157,30 @@ private actor GlyphRasterizationQueue {
             bytesPerRow: bytesPerRow,
             bytes: Data(bytes)
         )
+    }
+
+    private func drawFitted(
+        _ line: CTLine,
+        fontAscent: CGFloat,
+        fontDescent: CGFloat,
+        lineWidth: Double,
+        width: Int,
+        height: Int,
+        in context: CGContext
+    ) {
+        let baseline = CGFloat(height) - metrics.baseline
+        let ascentScale = metrics.baseline / max(fontAscent, 1)
+        let descentScale = fontDescent > 0 ? baseline / fontDescent : ascentScale
+
+        context.saveGState()
+        context.translateBy(x: 0, y: baseline)
+        context.scaleBy(
+            x: CGFloat(Double(width) / lineWidth),
+            y: min(ascentScale, descentScale)
+        )
+        context.textPosition = .zero
+        CTLineDraw(line, context)
+        context.restoreGState()
     }
 
     private func makeContext(

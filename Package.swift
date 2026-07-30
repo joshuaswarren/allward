@@ -6,37 +6,17 @@ import PackageDescription
 // adapter: no core target may depend on it, which `AllwardNoHerdrTarget`
 // proves at build time.
 
-let package = Package(
-    name: "Allward",
-    platforms: [.macOS(.v26)],
-    products: [
-        .library(name: "AllwardCore", targets: ["AllwardCore"]),
-        .library(name: "AllwardTerminal", targets: ["AllwardTerminal"]),
-        .library(name: "AllwardProtocol", targets: ["AllwardProtocol"]),
-        .library(name: "AllwardSurfaces", targets: ["AllwardSurfaces"]),
-        .executable(name: "allward", targets: ["allward"]),
-        .executable(name: "allward-mcp", targets: ["allward-mcp"]),
-    ],
-    targets: [
-        // MARK: Portable core (builds on Linux; no AppKit, Metal, or Darwin-only API)
-
-        .target(name: "AllwardCore"),
-        .target(name: "AllwardTerminal", dependencies: ["AllwardCore"]),
-        .target(name: "AllwardDesign", dependencies: ["AllwardCore"]),
-        .target(name: "AllwardProtocol", dependencies: ["AllwardCore"]),
-        .target(name: "AllwardRooms", dependencies: ["AllwardCore", "AllwardDesign"]),
-        .target(
-            name: "AllwardSurfaces",
-            dependencies: ["AllwardCore", "AllwardProtocol", "AllwardRooms", "AllwardMultiplexer"]
-        ),
-        .target(name: "AllwardMultiplexer", dependencies: ["AllwardCore"]),
-        .target(name: "AllwardConfig", dependencies: ["AllwardCore", "AllwardRooms", "AllwardDesign"]),
-        .target(name: "AllwardRemote", dependencies: ["AllwardCore"]),
-
-        // MARK: Darwin-only
-
+// The Darwin-only half of the graph (AppKit, Metal, forkpty, SpeechAnalyzer)
+// cannot compile on Linux. Excluding it there is not a portability shim: it is
+// how the portable engine, protocol, and surface reducers stay testable in a
+// fast Linux CI job while the app targets stay macOS 26 only.
+#if os(macOS)
+    let darwinTargets: [Target] = [
         .target(name: "CAllwardPTY", path: "Sources/CAllwardPTY", publicHeadersPath: "include"),
-        .target(name: "AllwardLocalPTY", dependencies: ["AllwardCore", "AllwardRemote", "CAllwardPTY"]),
+        .target(
+            name: "AllwardLocalPTY",
+            dependencies: ["AllwardCore", "AllwardRemote", "CAllwardPTY"]
+        ),
         .target(name: "AllwardSSH", dependencies: ["AllwardCore", "AllwardRemote", "AllwardLocalPTY"]),
         .target(name: "AllwardHerdr", dependencies: ["AllwardCore", "AllwardMultiplexer", "AllwardRemote"]),
         .target(
@@ -70,15 +50,49 @@ let package = Package(
                 "AllwardLocalPublisherEndpoint", "AllwardHerdr", "AllwardMCP",
             ]
         ),
-
-        // MARK: Executables
-
         .executableTarget(name: "allward", dependencies: ["AllwardChrome"]),
         .executableTarget(name: "allward-mcp", dependencies: ["AllwardMCP"]),
         .executableTarget(
             name: "allward-qa",
             dependencies: ["AllwardChrome", "AllwardDesign", "AllwardRenderer", "AllwardTerminal"]
         ),
+        .testTarget(name: "AllwardControlTests", dependencies: ["AllwardControl"]),
+        .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),
+        .testTarget(name: "AllwardMCPTests", dependencies: ["AllwardMCP"]),
+    ]
+    let darwinProducts: [Product] = [
+        .executable(name: "allward", targets: ["allward"]),
+        .executable(name: "allward-mcp", targets: ["allward-mcp"]),
+    ]
+#else
+    let darwinTargets: [Target] = []
+    let darwinProducts: [Product] = []
+#endif
+
+let package = Package(
+    name: "Allward",
+    platforms: [.macOS(.v26)],
+    products: [
+        .library(name: "AllwardCore", targets: ["AllwardCore"]),
+        .library(name: "AllwardTerminal", targets: ["AllwardTerminal"]),
+        .library(name: "AllwardProtocol", targets: ["AllwardProtocol"]),
+        .library(name: "AllwardSurfaces", targets: ["AllwardSurfaces"]),
+    ] + darwinProducts,
+    targets: [
+        // MARK: Portable core (builds on Linux; no AppKit, Metal, or Darwin-only API)
+
+        .target(name: "AllwardCore"),
+        .target(name: "AllwardTerminal", dependencies: ["AllwardCore"]),
+        .target(name: "AllwardDesign", dependencies: ["AllwardCore"]),
+        .target(name: "AllwardProtocol", dependencies: ["AllwardCore"]),
+        .target(name: "AllwardRooms", dependencies: ["AllwardCore", "AllwardDesign"]),
+        .target(
+            name: "AllwardSurfaces",
+            dependencies: ["AllwardCore", "AllwardProtocol", "AllwardRooms", "AllwardMultiplexer"]
+        ),
+        .target(name: "AllwardMultiplexer", dependencies: ["AllwardCore"]),
+        .target(name: "AllwardConfig", dependencies: ["AllwardCore", "AllwardRooms", "AllwardDesign"]),
+        .target(name: "AllwardRemote", dependencies: ["AllwardCore"]),
 
         // MARK: Tests
 
@@ -91,8 +105,5 @@ let package = Package(
         ),
         .testTarget(name: "AllwardDesignTests", dependencies: ["AllwardDesign"]),
         .testTarget(name: "AllwardConfigTests", dependencies: ["AllwardConfig"]),
-        .testTarget(name: "AllwardControlTests", dependencies: ["AllwardControl"]),
-        .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),
-        .testTarget(name: "AllwardMCPTests", dependencies: ["AllwardMCP"]),
-    ]
+    ] + darwinTargets
 )
