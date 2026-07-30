@@ -55,7 +55,20 @@ public struct CellMetrics: Hashable, Sendable {
     }
 }
 
+struct ResolvedGlyphFont {
+    let font: CTFont
+    let grapheme: String
+    let atlasIdentity: String
+}
+
 public enum FontMetrics {
+    private static let installedFontDescriptors: [CTFontDescriptor] = {
+        let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
+        return names
+            .filter { $0.caseInsensitiveCompare("LastResort") != .orderedSame }
+            .map { CTFontDescriptorCreateWithNameAndSize($0 as CFString, 0) }
+    }()
+
     public static func metrics(
         family: String? = nil,
         size: Double,
@@ -88,14 +101,51 @@ public enum FontMetrics {
         )
     }
 
-    static func font(metrics: CellMetrics, bold: Bool, italic: Bool) -> CTFont {
-        let size = metrics.pointSize * Double(metrics.scale)
-        let base = resolveFont(requestedFamily: metrics.fontFamily, pointSize: size)
-        var traits: CTFontSymbolicTraits = []
-        if bold { traits.insert(.boldTrait) }
-        if italic { traits.insert(.italicTrait) }
-        guard !traits.isEmpty else { return base }
-        return CTFontCreateCopyWithSymbolicTraits(base, size, nil, traits, traits) ?? base
+    static func baseFont(metrics: CellMetrics) -> CTFont {
+        resolveFont(
+            requestedFamily: metrics.fontFamily,
+            pointSize: metrics.pointSize * Double(metrics.scale)
+        )
+    }
+
+    static func resolvedGlyphFont(
+        metrics: CellMetrics,
+        grapheme: String,
+        bold: Bool,
+        italic: Bool
+    ) -> ResolvedGlyphFont {
+        let baseFont = baseFont(metrics: metrics)
+        let cascadedFont = cascadingFont(baseFont: baseFont, grapheme: grapheme)
+        let hasCoverage = font(cascadedFont, covers: grapheme)
+        let drawableGrapheme = hasCoverage ? grapheme : "\u{FFFD}"
+        let resolvedFont = hasCoverage
+            ? cascadedFont
+            : cascadingFont(baseFont: baseFont, grapheme: drawableGrapheme)
+        let styledFont = applyingTraits(
+            bold: bold,
+            italic: italic,
+            to: resolvedFont,
+            covering: drawableGrapheme
+        )
+        return ResolvedGlyphFont(
+            font: styledFont,
+            grapheme: drawableGrapheme,
+            atlasIdentity: "\(identity(of: baseFont))>\(identity(of: styledFont))"
+        )
+    }
+
+    static func atlasIdentity(
+        metrics: CellMetrics,
+        grapheme: String,
+        bold: Bool,
+        italic: Bool
+    ) -> String {
+        resolvedGlyphFont(
+            metrics: metrics,
+            grapheme: grapheme,
+            bold: bold,
+            italic: italic
+        ).atlasIdentity
     }
 
     private static func resolveFont(requestedFamily: String, pointSize: Double) -> CTFont {
@@ -116,6 +166,76 @@ public enum FontMetrics {
             return glyph
         }
         return CTFontGetGlyphWithName(font, "space" as CFString)
+    }
+
+    private static func cascadingFont(baseFont: CTFont, grapheme: String) -> CTFont {
+        let range = CFRange(location: 0, length: grapheme.utf16.count)
+        let systemFont = CTFontCreateForString(baseFont, grapheme as CFString, range)
+        guard isLastResort(systemFont) else { return systemFont }
+
+        let attributes = [
+            kCTFontCascadeListAttribute as String: installedFontDescriptors,
+        ] as CFDictionary
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes)
+        let expandedBaseFont = CTFontCreateCopyWithAttributes(
+            baseFont,
+            CTFontGetSize(baseFont),
+            nil,
+            descriptor
+        )
+        return CTFontCreateForString(expandedBaseFont, grapheme as CFString, range)
+    }
+
+    private static func isLastResort(_ font: CTFont) -> Bool {
+        let postScriptName = CTFontCopyPostScriptName(font) as String
+        return postScriptName.caseInsensitiveCompare("LastResort") == .orderedSame
+    }
+
+    private static func applyingTraits(
+        bold: Bool,
+        italic: Bool,
+        to font: CTFont,
+        covering grapheme: String
+    ) -> CTFont {
+        var traits: CTFontSymbolicTraits = []
+        if bold { traits.insert(.boldTrait) }
+        if italic { traits.insert(.italicTrait) }
+        guard !traits.isEmpty,
+              let styledFont = CTFontCreateCopyWithSymbolicTraits(
+                  font,
+                  CTFontGetSize(font),
+                  nil,
+                  traits,
+                  traits
+              ),
+              self.font(styledFont, covers: grapheme)
+        else {
+            return font
+        }
+        return styledFont
+    }
+
+    private static func font(_ font: CTFont, covers grapheme: String) -> Bool {
+        guard !isLastResort(font) else { return false }
+        let characters = Array(grapheme.utf16)
+        guard !characters.isEmpty else { return true }
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        return characters.withUnsafeBufferPointer { characterBuffer in
+            glyphs.withUnsafeMutableBufferPointer { glyphBuffer in
+                CTFontGetGlyphsForCharacters(
+                    font,
+                    characterBuffer.baseAddress!,
+                    glyphBuffer.baseAddress!,
+                    characters.count
+                )
+            }
+        }
+    }
+
+    private static func identity(of font: CTFont) -> String {
+        let postScriptName = CTFontCopyPostScriptName(font) as String
+        let traits = CTFontGetSymbolicTraits(font).rawValue
+        return "\(postScriptName)@\(CTFontGetSize(font))#\(traits)"
     }
 
     private static func unique(_ families: [String]) -> [String] {

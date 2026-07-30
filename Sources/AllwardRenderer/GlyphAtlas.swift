@@ -10,6 +10,7 @@ public enum GlyphPresentation: UInt8, Hashable, Sendable {
 
 public struct GlyphAtlasKey: Hashable, Sendable {
     public let grapheme: String
+    public let fontIdentity: String
     public let bold: Bool
     public let italic: Bool
     public let presentation: GlyphPresentation
@@ -17,12 +18,14 @@ public struct GlyphAtlasKey: Hashable, Sendable {
 
     public init(
         grapheme: String,
+        fontIdentity: String,
         bold: Bool,
         italic: Bool,
         presentation: GlyphPresentation,
         scale: CGFloat
     ) {
         self.grapheme = grapheme
+        self.fontIdentity = fontIdentity
         self.bold = bold
         self.italic = italic
         self.presentation = presentation
@@ -90,8 +93,14 @@ private actor GlyphRasterizationQueue {
         let bytesPerPixel = key.presentation == .monochrome ? 1 : 4
         let bytesPerRow = width * bytesPerPixel
         var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
-        let font = FontMetrics.font(metrics: metrics, bold: key.bold, italic: key.italic)
-        let grapheme = drawableGrapheme(key.grapheme, font: font)
+        let resolvedGlyph = FontMetrics.resolvedGlyphFont(
+            metrics: metrics,
+            grapheme: key.grapheme,
+            bold: key.bold,
+            italic: key.italic
+        )
+        let font = resolvedGlyph.font
+        let grapheme = resolvedGlyph.grapheme
 
         bytes.withUnsafeMutableBytes { storage in
             guard let baseAddress = storage.baseAddress,
@@ -162,20 +171,6 @@ private actor GlyphRasterizationQueue {
         )
     }
 
-    private func drawableGrapheme(_ grapheme: String, font: CTFont) -> String {
-        let attributes = [NSAttributedString.Key(kCTFontAttributeName as String): font]
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: grapheme, attributes: attributes))
-        let runs = CTLineGetGlyphRuns(line) as NSArray
-        for case let run as CTRun in runs {
-            let count = CTRunGetGlyphCount(run)
-            var glyphs = [CGGlyph](repeating: 0, count: count)
-            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
-            if glyphs.contains(0) {
-                return "\u{FFFD}"
-            }
-        }
-        return grapheme
-    }
 }
 
 @MainActor

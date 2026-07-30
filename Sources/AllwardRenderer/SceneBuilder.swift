@@ -222,6 +222,14 @@ public struct SceneBuilder: Sendable {
         guard !cell.isBlank, !cell.attributes.flags.contains(.invisible) else { return }
         let span = cell.span == .wide ? 2 : 1
         let presentation = glyphPresentation(cell.text)
+        let bold = cell.attributes.flags.contains(.bold)
+        let italic = cell.attributes.flags.contains(.italic)
+        let fontIdentity = FontMetrics.atlasIdentity(
+            metrics: metrics,
+            grapheme: cell.text,
+            bold: bold,
+            italic: italic
+        )
         let colors = resolvedColors(cell.attributes, theme: theme)
         var foreground = selected ? theme.selectionForeground : colors.foreground
         if cell.attributes.flags.contains(.faint) {
@@ -235,8 +243,9 @@ public struct SceneBuilder: Sendable {
         )
         let key = GlyphAtlasKey(
             grapheme: cell.text,
-            bold: cell.attributes.flags.contains(.bold),
-            italic: cell.attributes.flags.contains(.italic),
+            fontIdentity: fontIdentity,
+            bold: bold,
+            italic: italic,
             presentation: presentation,
             scale: metrics.scale
         )

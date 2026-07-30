@@ -2,28 +2,76 @@
 
 A native Mac terminal for people who run coding agents on many machines.
 
-Most terminals sort work by process and window. Allward groups local and remote sessions into Rooms. It shows the work that needs you: live agents, plans, open tasks, and permission requests. It also points to the pane that owns each item.
+Most terminals sort work by process and window. Allward groups local and remote sessions into Rooms. It shows the work that needs you: live agents, plans, open tasks, and permission requests. It points to the pane that owns each item.
 
-The terminal works without a multiplexer. Local shells and direct SSH are core paths. Optional adapters add discovery and durable workspace identity. [herdr](https://herdr.dev/) is the first deep adapter, not a runtime need.
+The terminal works without a multiplexer. Local shells and direct SSH are core paths. Adapters are optional. They add discovery and durable workspace identity. [herdr](https://herdr.dev/) is the first deep adapter, not a runtime need.
 
 ## Status
 
-Allward is pre-alpha. You cannot install the app yet.
+Allward v1 builds and runs. It is a young app, not a finished one. Expect rough edges. Read the open questions in the specs before you rely on a behaviour.
 
-The public specs are done. Code has begun with the identity layer. The first type is `RoomID`, a stable ID that does not depend on a window, process, transport, or multiplexer. Rooms will bind themes, hosts, sessions, alert rules, and saved state.
+What works today, verified on real hardware:
 
-## What Allward will do
+- A from-scratch VT engine with a Metal grid. It covers truecolor, bold, italic, underline, strike, inverse, wide CJK cells, colour emoji, alternate screen, scroll regions, and OSC 133 command regions.
+- Local shells through a real PTY, including complex prompts such as powerlevel10k.
+- Direct SSH with a typed connection state machine and named failure causes.
+- Rooms with their own tint, theme, hosts, and notification rules.
+- The session board, attention router strip, and re-entry digest. One normalized record store feeds all three.
+- The optional herdr adapter with its four-route fallback ladder.
+- An MCP server (`allward-mcp`) that drives the same control layer the UI uses.
+- Push-to-talk dictation. It inserts text at a locked destination and never presses Return.
 
-- Run a new terminal engine with AppKit input, a Metal grid, and SwiftUI chrome.
-- Support local shells in the signed direct build.
-- Support direct SSH in both the direct and Mac App Store builds.
-- Add optional multiplexer adapters, starting with herdr.
-- Show native plans, tasks, prompts, command state, and agent views.
-- Group work in Rooms across windows, hosts, and sessions.
-- Show an open-loop board, alert router, return digest, and one-key pane jump.
-- Insert on-device speech as text without sending the command.
-- Ship an MCP server for panes, boards, views, and Rooms.
-- Gate each release on access, speed, energy use, and privacy.
+Not in this build: the sandboxed Mac App Store target, inline images, and the roadmap items in `docs/SPEC.md` §1.
+
+## Install
+
+You need macOS 26 on Apple silicon.
+
+```sh
+git clone https://github.com/joshuaswarren/allward
+cd allward
+swift test                 # 111 tests
+bash scripts/make-app.sh   # builds and signs .build/Allward.app
+ditto .build/Allward.app /Applications/Allward.app
+open -a Allward
+```
+
+`scripts/make-app.sh` ad-hoc signs by default. To sign with your own identity:
+
+```sh
+CODESIGN_IDENTITY="Apple Development: You (TEAMID)" bash scripts/make-app.sh
+```
+
+## Try it
+
+| Action | Key |
+| --- | --- |
+| New local terminal | `⌘T` |
+| New window | `⌘N` |
+| Close pane | `⌘W` |
+| Split right / down | `⌘D` / `⌘⇧D` |
+| Move focus between panes | `⌘⌥` + arrow |
+| Connect to a configured SSH host | `⌘⇧O` |
+| Session board | `⌘⇧B` |
+| Attention router | `⌘⇧R` |
+| Re-entry digest | `⌘⇧E` |
+| Command palette | `⌘K` |
+| Switch Room | `⌘⇧M` |
+| Teleport to the routed destination | `⌘⇧T` |
+| Settings | `⌘,` |
+| Diagnostics | `⌘⇧/` |
+
+Configuration is a plain TOML file at `~/.config/allward/allward.toml`. Allward writes it on first launch. It reloads when the file changes on disk. Settings writes the same file.
+
+## Connect the MCP server
+
+`allward-mcp` ships inside the bundle and talks to the running app over an owner-only socket.
+
+```sh
+claude mcp add allward -- /Applications/Allward.app/Contents/MacOS/allward-mcp
+```
+
+It exposes pane control, screen and history reads, board and router queries, Room operations, and teleport. `allward_run` types a command, waits for the OSC 133 marker, then returns the exit code and output.
 
 ## Product rules
 
@@ -35,15 +83,15 @@ The public specs are done. Code has begun with the identity layer. The first typ
 6. Allward collects no usage data. Crash reports require opt-in and remove terminal text.
 7. Specs define the contract. Tests and receipts prove it.
 
-## Build the current package
-
-You need macOS 26, Xcode 26, and Swift 6.2 or later.
+## Develop
 
 ```sh
+swift build
 swift test
+.build/debug/allward-qa artifacts/visual-qa   # renders every surface to PNG
 ```
 
-The package now builds `AllwardCore` and its tests. App, terminal, SSH, render, protocol, and adapter targets will follow the module map in the spec.
+`allward-qa` draws the real terminal scene through the same `SceneBuilder` the app uses. It draws the real SwiftUI surfaces through `NSHostingView`. The PNGs are production pixels. The app also accepts `--capture <path>` and `--type <command>` to photograph its own live window.
 
 ## Read the design
 
