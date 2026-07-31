@@ -46,20 +46,22 @@ CODESIGN_IDENTITY="Apple Development: You (TEAMID)" bash scripts/make-app.sh
 
 | Action | Key |
 | --- | --- |
-| New local terminal | `⌘T` |
+| New tab | `⌘T` |
+| New pane in this tab | `⌥⌘T` |
 | New window | `⌘N` |
-| Close pane | `⌘W` |
-| Split right / down | `⌘D` / `⌘⇧D` |
-| Move focus between panes | `⌘⌥` + arrow |
-| Connect to a configured SSH host | `⌘⇧O` |
-| Session board | `⌘⇧B` |
-| Attention router | `⌘⇧R` |
-| Re-entry digest | `⌘⇧E` |
+| Close pane / tab | `⌘W` / `⇧⌘W` |
+| Split right / down | `⌘D` / `⇧⌘D` |
+| Move focus between panes | `⌥⌘←` `⌥⌘→` `⌥⌘↑` `⌥⌘↓` |
+| Connect to a configured SSH host | `⇧⌘O` |
+| Session board | `⇧⌘B` |
+| Attention router | `⇧⌘R` |
+| Re-entry digest | `⇧⌘E` |
 | Command palette | `⌘K` |
-| Switch Room | `⌘⇧M` |
-| Teleport to the routed destination | `⌘⇧T` |
+| Switch Room | `⇧⌘M` |
+| Teleport to the routed destination | `⇧⌘T` |
+| Cycle tabs | `⌃⇥` / `⌃⇧⇥` |
 | Settings | `⌘,` |
-| Diagnostics | `⌘⇧/` |
+| Diagnostics | `⇧⌘/` |
 
 Configuration is a plain TOML file at `~/.config/allward/allward.toml`. Allward writes it on first launch. It reloads when the file changes on disk. Settings writes the same file.
 

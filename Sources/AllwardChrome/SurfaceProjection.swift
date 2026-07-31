@@ -684,31 +684,31 @@ public enum SurfaceProjection {
     private static func keySettings(_ dictationKey: String) -> [KeySetting] {
         [
             KeySetting(
-                id: "session.new-local", action: "New local terminal", shortcut: "⌘T", isConfigurable: false),
-            KeySetting(id: "window.new", action: "New window", shortcut: "⌘N", isConfigurable: false),
-            KeySetting(id: "pane.close", action: "Close pane", shortcut: "⌘W", isConfigurable: false),
-            KeySetting(id: "pane.split-right", action: "Split right", shortcut: "⌘D", isConfigurable: false),
+                id: "session.new-local", action: "New local terminal", shortcut: Shortcut.newTab.display, isConfigurable: false),
+            KeySetting(id: "window.new", action: "New window", shortcut: Shortcut.newWindow.display, isConfigurable: false),
+            KeySetting(id: "pane.close", action: "Close pane", shortcut: Shortcut.closePane.display, isConfigurable: false),
+            KeySetting(id: "pane.split-right", action: "Split right", shortcut: Shortcut.splitRight.display, isConfigurable: false),
             KeySetting(
-                id: "pane.split-down", action: "Split down", shortcut: "⌘⇧D", isConfigurable: false),
+                id: "pane.split-down", action: "Split down", shortcut: Shortcut.splitDown.display, isConfigurable: false),
             KeySetting(
-                id: "pane.focus", action: "Focus pane", shortcut: "⌘⌥arrows", isConfigurable: false),
+                id: "pane.focus", action: "Focus pane", shortcut: Shortcut.focusPane, isConfigurable: false),
             KeySetting(
-                id: "host.connect", action: "Connect to SSH host", shortcut: "⌘⇧O", isConfigurable: false),
+                id: "host.connect", action: "Connect to SSH host", shortcut: Shortcut.connectSSH.display, isConfigurable: false),
             KeySetting(
-                id: "surface.board", action: "Board", shortcut: "⌘⇧B", isConfigurable: false),
+                id: "surface.board", action: "Board", shortcut: Shortcut.board.display, isConfigurable: false),
             KeySetting(
-                id: "surface.router", action: "Router", shortcut: "⌘⇧R", isConfigurable: false),
+                id: "surface.router", action: "Router", shortcut: Shortcut.router.display, isConfigurable: false),
             KeySetting(
-                id: "surface.digest", action: "Digest", shortcut: "⌘⇧E", isConfigurable: false),
+                id: "surface.digest", action: "Digest", shortcut: Shortcut.digest.display, isConfigurable: false),
             KeySetting(
-                id: "surface.command-palette", action: "Command palette", shortcut: "⌘K",
+                id: "surface.command-palette", action: "Command palette", shortcut: Shortcut.palette.display,
                 isConfigurable: false),
             KeySetting(
-                id: "room.switcher", action: "Room switcher", shortcut: "⌘⇧M", isConfigurable: false),
-            KeySetting(id: "teleport", action: "Teleport", shortcut: "⌘⇧T", isConfigurable: false),
-            KeySetting(id: "settings.open", action: "Settings", shortcut: "⌘,", isConfigurable: false),
+                id: "room.switcher", action: "Room switcher", shortcut: Shortcut.rooms.display, isConfigurable: false),
+            KeySetting(id: "teleport", action: "Teleport", shortcut: Shortcut.teleport.display, isConfigurable: false),
+            KeySetting(id: "settings.open", action: "Settings", shortcut: Shortcut.settings.display, isConfigurable: false),
             KeySetting(
-                id: "diagnostics.open", action: "Diagnostics", shortcut: "⌘⇧/", isConfigurable: false),
+                id: "diagnostics.open", action: "Diagnostics", shortcut: KeyChord("/", [.command, .shift]).display, isConfigurable: false),
             KeySetting(
                 id: "speech.dictation-key", action: "Hold to dictate", shortcut: dictationKey,
                 isConfigurable: true),
@@ -794,41 +794,41 @@ public enum SurfaceProjection {
         let hostAliases = hosts.map { $0.alias.rawValue }.joined(separator: ", ")
         return [
             CommandGroup(id: "panes", title: "Panes", commands: [
-                paletteCommand("session.new-local", "New local terminal", nil, "⌘T"),
-                paletteCommand("window.new", "New window", nil, "⌘N"),
-                paletteCommand("pane.close", "Close pane", nil, "⌘W", enabled: canClose),
-                paletteCommand("pane.split-right", "Split right", nil, "⌘D", enabled: canSplit),
-                paletteCommand("pane.split-down", "Split down", nil, "⌘⇧D", enabled: canSplit),
-                paletteCommand("pane.focus", "Focus pane", nil, "⌘⌥arrows"),
+                paletteCommand("session.new-local", "New local terminal", nil, Shortcut.newTab.display),
+                paletteCommand("window.new", "New window", nil, Shortcut.newWindow.display),
+                paletteCommand("pane.close", "Close pane", nil, Shortcut.closePane.display, enabled: canClose),
+                paletteCommand("pane.split-right", "Split right", nil, Shortcut.splitRight.display, enabled: canSplit),
+                paletteCommand("pane.split-down", "Split down", nil, Shortcut.splitDown.display, enabled: canSplit),
+                paletteCommand("pane.focus", "Focus pane", nil, Shortcut.focusPane),
             ]),
             CommandGroup(id: "connections", title: "Connections", commands: [
                 paletteCommand(
                     "host.connect",
                     "Connect to SSH host",
                     hostAliases.isEmpty ? "No hosts configured" : hostAliases,
-                    "⌘⇧O",
+                    Shortcut.connectSSH.display,
                     enabled: !hosts.isEmpty
                 ),
             ]),
             CommandGroup(id: "surfaces", title: "Surfaces", commands: [
-                paletteCommand("surface.board", "Board", nil, "⌘⇧B"),
-                paletteCommand("surface.router", "Router", nil, "⌘⇧R"),
-                paletteCommand("surface.digest", "Digest", nil, "⌘⇧E"),
-                paletteCommand("surface.command-palette", "Command palette", nil, "⌘K"),
+                paletteCommand("surface.board", "Board", nil, Shortcut.board.display),
+                paletteCommand("surface.router", "Router", nil, Shortcut.router.display),
+                paletteCommand("surface.digest", "Digest", nil, Shortcut.digest.display),
+                paletteCommand("surface.command-palette", "Command palette", nil, Shortcut.palette.display),
             ]),
             CommandGroup(id: "navigation", title: "Navigation", commands: [
                 paletteCommand(
                     "room.switcher",
                     "Room switcher",
                     roomNames.isEmpty ? "No Rooms configured" : roomNames,
-                    "⌘⇧M",
+                    Shortcut.rooms.display,
                     enabled: !rooms.isEmpty
                 ),
-                paletteCommand("teleport", "Teleport", nil, "⌘⇧T"),
+                paletteCommand("teleport", "Teleport", nil, Shortcut.teleport.display),
             ]),
             CommandGroup(id: "application", title: "Application", commands: [
-                paletteCommand("settings.open", "Settings", nil, "⌘,"),
-                paletteCommand("diagnostics.open", "Diagnostics", nil, "⌘⇧/"),
+                paletteCommand("settings.open", "Settings", nil, Shortcut.settings.display),
+                paletteCommand("diagnostics.open", "Diagnostics", nil, KeyChord("/", [.command, .shift]).display),
             ]),
         ]
     }

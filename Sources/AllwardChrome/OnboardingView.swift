@@ -62,7 +62,7 @@ public struct OnboardingViewState: Hashable, Sendable {
                         OnboardingAction(
                             id: "choose-room",
                             title: "Open Room switcher",
-                            shortcut: "⌘⇧M",
+                            shortcut: Shortcut.rooms.display,
                             symbol: "rectangle.3.group"
                         )
                     ]
@@ -76,13 +76,13 @@ public struct OnboardingViewState: Hashable, Sendable {
                         OnboardingAction(
                             id: "new-local-terminal",
                             title: "New local terminal",
-                            shortcut: "⌘T",
+                            shortcut: Shortcut.newTab.display,
                             symbol: "terminal"
                         ),
                         OnboardingAction(
                             id: "connect-ssh",
                             title: "Connect SSH host",
-                            shortcut: "⌘⇧O",
+                            shortcut: Shortcut.connectSSH.display,
                             symbol: "network"
                         )
                     ]
@@ -96,7 +96,7 @@ public struct OnboardingViewState: Hashable, Sendable {
                         OnboardingAction(
                             id: "open-board",
                             title: "Open board",
-                            shortcut: "⌘⇧B",
+                            shortcut: Shortcut.board.display,
                             symbol: "rectangle.grid.1x2"
                         )
                     ]

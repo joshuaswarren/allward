@@ -201,13 +201,34 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "split-right": await model.splitFocusedPane(.horizontal)
         case "split-down": await model.splitFocusedPane(.vertical)
         case "new-tab": await model.newTab()
-        case "board": window.presentBoard()
-        case "digest": window.presentDigest()
-        case "palette": window.presentCommandPalette()
-        case "settings": window.presentSettings()
-        case "rooms": window.presentRoomSwitcher()
+        case "board":
+            window.presentBoard()
+            await waitForSurface(window)
+        case "digest":
+            window.presentDigest()
+            await waitForSurface(window)
+        case "palette":
+            window.presentCommandPalette()
+            await waitForSurface(window)
+        case "settings":
+            window.presentSettings()
+            await waitForSurface(window)
+        case "rooms":
+            window.presentRoomSwitcher()
+            await waitForSurface(window)
         default: break
         }
+    }
+
+    /// A surface presents through an async projection, so a capture that fires
+    /// immediately photographs the window before the surface exists. Report the
+    /// wait rather than sleeping blindly.
+    private func waitForSurface(_ window: MainWindowController) async {
+        for _ in 0..<40 {
+            if window.presentedSurface != nil { return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        print("step warning: no surface presented after 2s")
     }
 
     // MARK: Menu
@@ -224,8 +245,8 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "About Allward", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: "")
         appMenu.addItem(.separator())
-        add(appMenu, "Settings…", #selector(showSettings(_:)), ",", [.command])
-        add(appMenu, "Diagnostics", #selector(showDiagnostics(_:)), "/", [.command, .shift])
+        add(appMenu, "Settings…", #selector(showSettings(_:)), Shortcut.settings)
+        add(appMenu, "Diagnostics", #selector(showDiagnostics(_:)), KeyChord("/", [.command, .shift]))
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide Allward", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -237,52 +258,49 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
         let fileItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        add(fileMenu, "New tab", #selector(newTab(_:)), "t", [.command])
-        add(fileMenu, "New pane in this tab", #selector(newLocalTerminal(_:)), "t", [.command, .option])
-        add(fileMenu, "New window", #selector(newWindow(_:)), "n", [.command])
-        add(fileMenu, "Connect to SSH host…", #selector(connectSSH(_:)), "o", [.command, .shift])
+        add(fileMenu, "New tab", #selector(newTab(_:)), Shortcut.newTab)
+        add(fileMenu, "New pane in this tab", #selector(newLocalTerminal(_:)), Shortcut.newLocalTerminal)
+        add(fileMenu, "New window", #selector(newWindow(_:)), Shortcut.newWindow)
+        add(fileMenu, "Connect to SSH host…", #selector(connectSSH(_:)), Shortcut.connectSSH)
         fileMenu.addItem(.separator())
-        add(fileMenu, "Close pane", #selector(closePane(_:)), "w", [.command])
-        add(fileMenu, "Close tab", #selector(closeTab(_:)), "w", [.command, .shift])
+        add(fileMenu, "Close pane", #selector(closePane(_:)), Shortcut.closePane)
+        add(fileMenu, "Close tab", #selector(closeTab(_:)), Shortcut.closeTab)
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        add(viewMenu, "Split right", #selector(splitRight(_:)), "d", [.command])
-        add(viewMenu, "Split down", #selector(splitDown(_:)), "d", [.command, .shift])
+        add(viewMenu, "Split right", #selector(splitRight(_:)), Shortcut.splitRight)
+        add(viewMenu, "Split down", #selector(splitDown(_:)), Shortcut.splitDown)
         viewMenu.addItem(.separator())
-        add(viewMenu, "Focus pane left", #selector(focusLeft(_:)), "\u{F702}", [.command, .option])
-        add(viewMenu, "Focus pane right", #selector(focusRight(_:)), "\u{F703}", [.command, .option])
-        add(viewMenu, "Focus pane up", #selector(focusUp(_:)), "\u{F700}", [.command, .option])
-        add(viewMenu, "Focus pane down", #selector(focusDown(_:)), "\u{F701}", [.command, .option])
+        add(viewMenu, "Focus pane left", #selector(focusLeft(_:)), Shortcut.focusLeft)
+        add(viewMenu, "Focus pane right", #selector(focusRight(_:)), Shortcut.focusRight)
+        add(viewMenu, "Focus pane up", #selector(focusUp(_:)), Shortcut.focusUp)
+        add(viewMenu, "Focus pane down", #selector(focusDown(_:)), Shortcut.focusDown)
         viewMenu.addItem(.separator())
-        add(viewMenu, "Next tab", #selector(nextTab(_:)), "\u{0009}", [.control])
-        add(viewMenu, "Previous tab", #selector(previousTab(_:)), "\u{0009}", [.control, .shift])
+        add(viewMenu, "Next tab", #selector(nextTab(_:)), Shortcut.nextTab)
+        add(viewMenu, "Previous tab", #selector(previousTab(_:)), Shortcut.previousTab)
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 
         let workItem = NSMenuItem()
         let workMenu = NSMenu(title: "Work")
-        add(workMenu, "Session board", #selector(showBoard(_:)), "b", [.command, .shift])
-        add(workMenu, "Attention router", #selector(focusRouter(_:)), "r", [.command, .shift])
-        add(workMenu, "Re-entry digest", #selector(showDigest(_:)), "e", [.command, .shift])
-        add(workMenu, "Command palette", #selector(showCommandPalette(_:)), "k", [.command])
+        add(workMenu, "Session board", #selector(showBoard(_:)), Shortcut.board)
+        add(workMenu, "Attention router", #selector(focusRouter(_:)), Shortcut.router)
+        add(workMenu, "Re-entry digest", #selector(showDigest(_:)), Shortcut.digest)
+        add(workMenu, "Command palette", #selector(showCommandPalette(_:)), Shortcut.palette)
         workMenu.addItem(.separator())
-        add(workMenu, "Switch Room…", #selector(showRoomSwitcher(_:)), "m", [.command, .shift])
-        add(workMenu, "Teleport to destination", #selector(teleport(_:)), "t", [.command, .shift])
+        add(workMenu, "Switch Room…", #selector(showRoomSwitcher(_:)), Shortcut.rooms)
+        add(workMenu, "Teleport to destination", #selector(teleport(_:)), Shortcut.teleport)
         workItem.submenu = workMenu
         main.addItem(workItem)
 
         NSApp.mainMenu = main
     }
 
-    private func add(
-        _ menu: NSMenu, _ title: String, _ action: Selector, _ key: String,
-        _ modifiers: NSEvent.ModifierFlags
-    ) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.keyEquivalentModifierMask = modifiers
+    private func add(_ menu: NSMenu, _ title: String, _ action: Selector, _ chord: KeyChord) {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: chord.key)
+        item.keyEquivalentModifierMask = chord.modifiers
         item.target = self
         menu.addItem(item)
     }

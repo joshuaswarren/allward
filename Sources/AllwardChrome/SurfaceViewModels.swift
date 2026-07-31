@@ -735,10 +735,10 @@ public struct CommandPaletteViewState: Hashable, Sendable {
                 CommandGroup(id: "navigation", title: "Navigation", commands: [
                     PaletteCommand(
                         id: "board", title: "Open Board", subtitle: "All sessions and attention",
-                        shortcut: "⌘⇧B", isEnabled: true),
+                        shortcut: Shortcut.board.display, isEnabled: true),
                     PaletteCommand(
                         id: "digest", title: "Open digest", subtitle: "Changes since your last visit",
-                        shortcut: "⌘⇧E", isEnabled: true),
+                        shortcut: Shortcut.digest.display, isEnabled: true),
                 ]),
             ], selectedCommandID: "board")
     }
@@ -1113,22 +1113,22 @@ public struct SettingsViewState: Hashable, Sendable {
     }
 
     private static let fixtureKeys = [
-        KeySetting(id: "new-local", action: "New local terminal", shortcut: "⌘T", isConfigurable: false),
-        KeySetting(id: "new-window", action: "New window", shortcut: "⌘N", isConfigurable: false),
-        KeySetting(id: "close-pane", action: "Close pane", shortcut: "⌘W", isConfigurable: false),
-        KeySetting(id: "split-right", action: "Split right", shortcut: "⌘D", isConfigurable: false),
-        KeySetting(id: "split-down", action: "Split down", shortcut: "⌘⇧D", isConfigurable: false),
-        KeySetting(id: "focus-pane", action: "Focus pane", shortcut: "⌘⌥arrows", isConfigurable: false),
-        KeySetting(id: "tabs", action: "Next or previous tab", shortcut: "⌃⇥ / ⌃⇧⇥", isConfigurable: false),
-        KeySetting(id: "ssh", action: "Connect to SSH host", shortcut: "⌘⇧O", isConfigurable: false),
-        KeySetting(id: "board", action: "Open Board", shortcut: "⌘⇧B", isConfigurable: false),
-        KeySetting(id: "router", action: "Focus router", shortcut: "⌘⇧R", isConfigurable: false),
-        KeySetting(id: "digest", action: "Open digest", shortcut: "⌘⇧E", isConfigurable: false),
-        KeySetting(id: "palette", action: "Command palette", shortcut: "⌘K", isConfigurable: false),
-        KeySetting(id: "rooms", action: "Room switcher", shortcut: "⌘⇧M", isConfigurable: false),
-        KeySetting(id: "teleport", action: "Teleport", shortcut: "⌘⇧T", isConfigurable: false),
-        KeySetting(id: "settings", action: "Settings", shortcut: "⌘,", isConfigurable: false),
-        KeySetting(id: "diagnostics", action: "Diagnostics", shortcut: "⌘⇧/", isConfigurable: false),
+        KeySetting(id: "new-local", action: "New local terminal", shortcut: Shortcut.newTab.display, isConfigurable: false),
+        KeySetting(id: "new-window", action: "New window", shortcut: Shortcut.newWindow.display, isConfigurable: false),
+        KeySetting(id: "close-pane", action: "Close pane", shortcut: Shortcut.closePane.display, isConfigurable: false),
+        KeySetting(id: "split-right", action: "Split right", shortcut: Shortcut.splitRight.display, isConfigurable: false),
+        KeySetting(id: "split-down", action: "Split down", shortcut: Shortcut.splitDown.display, isConfigurable: false),
+        KeySetting(id: "focus-pane", action: "Focus pane", shortcut: Shortcut.focusPane, isConfigurable: false),
+        KeySetting(id: "tabs", action: "Next or previous tab", shortcut: Shortcut.tabCycle, isConfigurable: false),
+        KeySetting(id: "ssh", action: "Connect to SSH host", shortcut: Shortcut.connectSSH.display, isConfigurable: false),
+        KeySetting(id: "board", action: "Open Board", shortcut: Shortcut.board.display, isConfigurable: false),
+        KeySetting(id: "router", action: "Focus router", shortcut: Shortcut.router.display, isConfigurable: false),
+        KeySetting(id: "digest", action: "Open digest", shortcut: Shortcut.digest.display, isConfigurable: false),
+        KeySetting(id: "palette", action: "Command palette", shortcut: Shortcut.palette.display, isConfigurable: false),
+        KeySetting(id: "rooms", action: "Room switcher", shortcut: Shortcut.rooms.display, isConfigurable: false),
+        KeySetting(id: "teleport", action: "Teleport", shortcut: Shortcut.teleport.display, isConfigurable: false),
+        KeySetting(id: "settings", action: "Settings", shortcut: Shortcut.settings.display, isConfigurable: false),
+        KeySetting(id: "diagnostics", action: "Diagnostics", shortcut: KeyChord("/", [.command, .shift]).display, isConfigurable: false),
         KeySetting(id: "dictation", action: "Hold to dictate", shortcut: "fn", isConfigurable: true),
     ]
 }

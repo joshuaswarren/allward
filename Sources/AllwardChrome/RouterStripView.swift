@@ -163,7 +163,7 @@ public struct RouterStripView: View {
             HStack(spacing: SpaceToken.inlineStandard.points) {
                 Text("Board")
                     .tokenFont(.uiLabel, palette)
-                Text("⌘⇧B")
+                Text(Shortcut.board.display)
                     .tokenFont(.uiData, palette)
             }
         }

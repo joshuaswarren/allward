@@ -195,6 +195,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public var presentedSurface: SummonedSurface? { overlay }
 
+    /// The presented surface's view, so a capture can composite it above the
+    /// terminal content it covers.
+    public var summonedSurfaceView: NSView? { overlayHost.isHidden ? nil : overlayHost }
+
     // MARK: Toolbar
 
     /// Toolbar capacity is deliberately limited to Room selection, board

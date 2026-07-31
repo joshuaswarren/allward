@@ -48,18 +48,19 @@ editor. Powerline segments, box drawing, wide CJK, bold, underline, and
 reverse video all have to land on the grid. None of them may smear into a
 neighbouring cell. Resize the window while output floods.
 
-Panes and tabs. `⌘D` splits right and `⌘⇧D` splits down. `⌘W` closes and
-`⌘T` opens a tab. `⌥⌘←` and `⌥⌘→` move between panes, and `⌃⇥` cycles
-tabs. Each pane keeps its own shell, scrollback, and title.
+Panes and tabs. `⌘D` splits right and `⇧⌘D` splits down. `⌘W` closes a
+pane and `⇧⌘W` closes a tab. `⌘T` opens a tab and `⌥⌘T` adds a pane to the
+one you are in. `⌥⌘←` and `⌥⌘→` move focus, and `⌃⇥` cycles tabs. Each
+pane keeps its own shell, scrollback, and title.
 
-Rooms. `⌘R` switches. A Room owns its theme, its hosts, and its sessions.
+Rooms. `⇧⌘M` switches. A Room owns its theme, its hosts, and its sessions.
 So Personal and Work can look and behave differently. Themes follow the
 Room, never the system appearance.
 
-SSH. Add a host to the config and open it. The connection is direct. No
+SSH. Add a host to the config and open it with `⇧⌘O`. The connection is direct. No
 multiplexer is installed on the far end, and nothing is required there.
 
-The Board. `⌘B`. With no agents connected it says so plainly. Point an
+The Board. `⇧⌘B`. With no agents connected it says so plainly. Point an
 agent at the socket and it fills with that agent's live state and open
 tasks. Any permission request waiting on you shows up there too.
 
