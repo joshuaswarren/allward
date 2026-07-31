@@ -43,6 +43,7 @@ public struct KeyChord: Hashable, Sendable {
         case "\u{F72B}": return "↘"
         case "\u{F72C}": return "⇞"
         case "\u{F72D}": return "⇟"
+        case "\r": return "↩"
         default: return key.uppercased()
         }
     }
@@ -87,6 +88,12 @@ public enum Shortcut {
     public static let scrollToBottom = KeyChord("\u{F72B}", [.command])
     public static let previousPrompt = KeyChord("\u{F700}", [.command, .shift])
     public static let nextPrompt = KeyChord("\u{F701}", [.command, .shift])
+    public static let previousTabBracket = KeyChord("[", [.command, .shift])
+    public static let nextTabBracket = KeyChord("]", [.command, .shift])
+    public static let previousSplit = KeyChord("[", [.command])
+    public static let nextSplit = KeyChord("]", [.command])
+    public static let toggleFullScreen = KeyChord("\r", [.command])
+    public static let reloadConfiguration = KeyChord(",", [.command, .shift])
 
     /// Command-1 through Command-8 select a tab and Command-9 the last one,
     /// which is what every browser and every other terminal does.
@@ -138,5 +145,11 @@ public enum Shortcut {
         ("scroll.bottom", scrollToBottom),
         ("prompt.previous", previousPrompt),
         ("prompt.next", nextPrompt),
+        ("tab.previous-bracket", previousTabBracket),
+        ("tab.next-bracket", nextTabBracket),
+        ("split.previous", previousSplit),
+        ("split.next", nextSplit),
+        ("window.fullscreen", toggleFullScreen),
+        ("config.reload", reloadConfiguration),
     ] + (1 ... 9).map { ("tab.select-\($0)", selectTab($0)) }
 }

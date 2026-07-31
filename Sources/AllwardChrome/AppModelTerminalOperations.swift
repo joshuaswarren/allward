@@ -117,6 +117,29 @@ extension AppModel {
 
     // MARK: Tabs
 
+    /// Cycle panes in layout order, which is what Command-[ and Command-]
+    /// do in every terminal that has splits.
+    public func focusAdjacentPane(forward: Bool) async {
+        guard let layout = currentLayout() else { return }
+        let panes = layout.leaves
+        guard panes.count > 1, let current = focusedPane,
+            let index = panes.firstIndex(of: current)
+        else { return }
+        let step = forward ? 1 : panes.count - 1
+        await focus(panes[(index + step) % panes.count])
+    }
+
+    /// Re-reads the configuration file on demand rather than waiting for the
+    /// watcher, which is what Shift-Command-Comma is for.
+    public func reloadConfigurationFromDisk() async {
+        do {
+            await applyConfiguration(
+                try Configuration.load(from: AllwardPaths.configurationFile()))
+        } catch {
+            lastActionMessage = "The configuration could not be reloaded: \(error.localizedDescription)"
+        }
+    }
+
     /// Command-1 through Command-8 pick that tab; Command-9 picks the last,
     /// matching Safari, Chrome, Terminal.app, iTerm and Ghostty.
     public func selectTab(at index: Int) async {

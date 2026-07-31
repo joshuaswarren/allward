@@ -255,6 +255,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "")
         appMenu.addItem(.separator())
         add(appMenu, "Settings…", #selector(showSettings(_:)), Shortcut.settings)
+        add(
+            appMenu, "Reload configuration", #selector(reloadConfiguration(_:)),
+            Shortcut.reloadConfiguration)
         add(appMenu, "Diagnostics", #selector(showDiagnostics(_:)), KeyChord("/", [.command, .shift]))
         appMenu.addItem(.separator())
         appMenu.addItem(
@@ -292,6 +295,10 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
+        add(
+            viewMenu, "Toggle full screen", #selector(NSWindow.toggleFullScreen(_:)),
+            Shortcut.toggleFullScreen)
+        viewMenu.addItem(.separator())
         add(viewMenu, "Clear screen", #selector(clearScreen(_:)), Shortcut.clearScreen)
         viewMenu.addItem(.separator())
         add(viewMenu, "Bigger text", #selector(increaseFontSize(_:)), Shortcut.increaseFontSize)
@@ -313,9 +320,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         add(viewMenu, "Focus pane right", #selector(focusRight(_:)), Shortcut.focusRight)
         add(viewMenu, "Focus pane up", #selector(focusUp(_:)), Shortcut.focusUp)
         add(viewMenu, "Focus pane down", #selector(focusDown(_:)), Shortcut.focusDown)
+        add(viewMenu, "Previous pane", #selector(previousSplit(_:)), Shortcut.previousSplit)
+        add(viewMenu, "Next pane", #selector(nextSplit(_:)), Shortcut.nextSplit)
         viewMenu.addItem(.separator())
         add(viewMenu, "Next tab", #selector(nextTab(_:)), Shortcut.nextTab)
         add(viewMenu, "Previous tab", #selector(previousTab(_:)), Shortcut.previousTab)
+        add(viewMenu, "Next tab ", #selector(nextTab(_:)), Shortcut.nextTabBracket)
+        add(viewMenu, "Previous tab ", #selector(previousTab(_:)), Shortcut.previousTabBracket)
         for index in 1 ... 9 {
             let title = index == 9 ? "Last tab" : "Tab \(index)"
             add(viewMenu, title, #selector(selectNumberedTab(_:)), Shortcut.selectTab(index))
@@ -438,6 +449,15 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc public func nextPrompt(_ sender: Any?) {
         Task { await model.jumpToPrompt(previous: false) }
+    }
+    @objc public func previousSplit(_ sender: Any?) {
+        Task { await model.focusAdjacentPane(forward: false) }
+    }
+    @objc public func nextSplit(_ sender: Any?) {
+        Task { await model.focusAdjacentPane(forward: true) }
+    }
+    @objc public func reloadConfiguration(_ sender: Any?) {
+        Task { await model.reloadConfigurationFromDisk() }
     }
     @objc public func selectNumberedTab(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }
