@@ -42,6 +42,7 @@ public final class TerminalPaneView: NSView {
     private var renderer: TerminalRenderer?
     private var scheduler: FrameScheduler?
     private let metalLayer = CAMetalLayer()
+    private var captureLayer: CALayer?
     private var fontFamily: String?
     private var fontSize: Double
     private var trackingAreaRef: NSTrackingArea?
@@ -163,6 +164,27 @@ public final class TerminalPaneView: NSView {
     private func publishGeometry() {
         guard bounds.width > 0, bounds.height > 0 else { return }
         delegate?.pane(self, resizeTo: currentGeometry)
+    }
+
+    /// A still of the grid, shown in place of the Metal layer while the window
+    /// is captured. `cacheDisplay` cannot read a `CAMetalLayer`, and
+    /// compositing the grid afterwards means reimplementing AppKit's coordinate
+    /// handling by hand, which put panes thirty points above where they render.
+    /// A real layer is placed by the same code that places everything else.
+    public func showCaptureStill(_ image: CGImage?) {
+        guard let image else {
+            captureLayer?.removeFromSuperlayer()
+            captureLayer = nil
+            metalLayer.isHidden = false
+            return
+        }
+        let still = captureLayer ?? CALayer()
+        still.contentsGravity = .resize
+        still.contents = image
+        still.frame = gridRect
+        if still.superlayer == nil { layer?.addSublayer(still) }
+        captureLayer = still
+        metalLayer.isHidden = true
     }
 
     /// An unfocused split recedes instead of competing. Every terminal that

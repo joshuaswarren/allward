@@ -26,6 +26,22 @@ public enum WindowCapture {
         // The titlebar and toolbar live above the content view, so capture the
         // window's frame view to evidence the whole window rather than a crop.
         let captureView = contentView.superview ?? contentView
+
+        // Hand each pane a still of its grid and let AppKit place it. Nothing
+        // is composited by hand, so a pane cannot land on the wrong rows.
+        var stilled: [TerminalPaneView] = []
+        defer { for view in stilled { view.showCaptureStill(nil) } }
+        for (paneID, container) in model.containers {
+            guard let view = model.paneView(for: paneID), let snapshot = view.snapshot,
+                view.bounds.width > 1, view.bounds.height > 1
+            else { continue }
+            view.showCaptureStill(
+                try await renderTerminal(
+                    snapshot: snapshot, view: container.terminal, model: model,
+                    focused: view.isPaneFocused))
+            stilled.append(view)
+        }
+
         captureView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
@@ -34,45 +50,6 @@ public enum WindowCapture {
         }
         rep.size = captureView.bounds.size
         captureView.cacheDisplay(in: captureView.bounds, to: rep)
-
-        guard let context = NSGraphicsContext(bitmapImageRep: rep) else {
-            throw CaptureError.bitmapUnavailable
-        }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        for (paneID, container) in model.containers {
-            guard let view = model.paneView(for: paneID), let snapshot = view.snapshot
-            else { continue }
-            let terminal = container.terminal
-            let frame = terminal.convert(terminal.bounds, to: captureView)
-            guard frame.width > 1, frame.height > 1 else { continue }
-            let image = try await renderTerminal(
-                snapshot: snapshot, view: terminal, model: model,
-                focused: view.isPaneFocused)
-            // The same dimming the live pane applies, so a capture shows the
-            // window as it actually looks rather than an idealised version.
-            let opacity =
-                view.isPaneFocused ? 1 : CGFloat(TerminalPaneView.unfocusedOpacity)
-            NSImage(cgImage: image, size: frame.size)
-                .draw(in: frame, from: .zero, operation: .sourceOver, fraction: opacity)
-        }
-        // A summoned surface covers the panes on screen, so it is redrawn above
-        // them here. Painting the terminal last would erase it.
-        if let summoned = (window.windowController as? MainWindowController)?
-            .summonedSurfaceView,
-            let overlay = summoned.bitmapImageRepForCachingDisplay(in: summoned.bounds)
-        {
-            overlay.size = summoned.bounds.size
-            summoned.cacheDisplay(in: summoned.bounds, to: overlay)
-            NSImage(size: summoned.bounds.size, flipped: false) { rect in
-                overlay.draw(in: rect)
-                return true
-            }
-            .draw(
-                in: summoned.convert(summoned.bounds, to: captureView),
-                from: .zero, operation: .sourceOver, fraction: 1)
-        }
-        NSGraphicsContext.restoreGraphicsState()
 
         guard let data = rep.representation(using: .png, properties: [:]) else {
             throw CaptureError.encodingFailed
