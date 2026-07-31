@@ -51,9 +51,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         buildMenu()
+        // Observation first: it hands the model the window, which is how the
+        // initial shell learns its real size before it prints a prompt.
+        await model.startSurfaceObservation(window: window)
         await model.openInitialSession()
         startControlSocket(for: model)
-        await model.startSurfaceObservation(window: window)
         startConfigurationReload(at: configurationURL, initial: configuration, model: model)
         if let capturePath = Self.capturePath() {
             await runCapture(window: window, model: model, to: capturePath)
@@ -166,6 +168,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
             print("tabs: \(model.tabStripItems().count) layout: \(String(describing: model.currentLayout()))")
             print(window.layoutReport())
+            print("grids: \(model.gridReport())")
             print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
             if let message = model.lastActionMessage { print("note: \(message)") }
             exit(0)

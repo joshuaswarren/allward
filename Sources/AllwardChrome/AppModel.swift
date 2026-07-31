@@ -28,7 +28,12 @@ public final class AppModel {
     public internal(set) var configuration: Configuration
     public internal(set) var adapterHealth: AdapterHealth = .none
     public internal(set) var focusedWindow: WindowID?
-    public internal(set) var focusedTab: TabID?
+    /// Which tab is focused is the control layer's answer, never a second copy
+    /// kept here. Two sources drifted: the strip highlighted one tab while the
+    /// split host laid out another, so switching tabs appeared to do nothing.
+    public var focusedTab: TabID? {
+        topology.windows.first { $0.id == focusedWindow }?.focusedTab
+    }
     /// Live counters for the diagnostics surface, refreshed on real events.
     public internal(set) var diagnosticsInputs = DiagnosticsInputs()
 
@@ -203,7 +208,6 @@ public final class AppModel {
         if focusedWindow == nil || !topology.windows.contains(where: { $0.id == focusedWindow }) {
             focusedWindow = topology.windows.first?.id
         }
-        focusedTab = topology.windows.first { $0.id == focusedWindow }?.focusedTab
         for pane in topology.panes { adoptPane(pane.id) }
         let live = Set(topology.panes.map(\.id))
         for pane in paneViews.keys where !live.contains(pane) { releasePane(pane) }
@@ -216,7 +220,7 @@ public final class AppModel {
     /// The user-facing session name for a pane header, in order of how much it
     /// tells a human: the shell's own title, then the working directory, then
     /// the route it came from.
-    private func paneTitle(snapshot: TerminalSnapshot, entry: PaneTopology) -> String {
+    func paneTitle(snapshot: TerminalSnapshot, entry: PaneTopology) -> String {
         if let title = snapshot.title, !title.isEmpty { return title }
         if let directory = snapshot.commandRegions.last?.workingDirectory,
             directory.isEmpty == false
@@ -312,7 +316,7 @@ public final class AppModel {
             let room = topology.windows.first(where: { $0.id == window })?.room
         else { return }
         let request = PaneCreationRequest(
-            window: window, tab: tab, geometry: .standard,
+            window: window, tab: tab, geometry: projectedPaneGeometry(),
             workingDirectory: activeRoom?.defaults.workingDirectory, environment: [:])
         await applyingLiveGeneration { generation in
             await control.createLocalPane(
@@ -327,7 +331,7 @@ public final class AppModel {
             let room = topology.windows.first(where: { $0.id == window })?.room
         else { return }
         let request = PaneCreationRequest(
-            window: window, tab: tab, geometry: .standard, workingDirectory: nil, environment: [:])
+            window: window, tab: tab, geometry: projectedPaneGeometry(), workingDirectory: nil, environment: [:])
         await applyingLiveGeneration { generation in
             await control.createSSHPane(
                 target: Target(room: room), generation: generation, request: request,

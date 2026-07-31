@@ -103,3 +103,26 @@ if maxX >= minX && maxY >= minY {
 } else {
     print("cardBox=none")
 }
+
+// Which bands of the image actually carry text, so "the prompt sits in the
+// middle" becomes a measurement instead of an impression.
+// Sample the interior only: the window edges and titlebar are chrome, and on
+// a light system appearance they never match the terminal background.
+let inset = width / 12
+var bands: [String] = []
+var runStart = -1
+for y in (height / 10)..<height {
+    var hit = false
+    for x in stride(from: inset, to: width - inset, by: 2)
+    where abs(luminance(x, y) - background) > 0.10 {
+        hit = true
+        break
+    }
+    if hit && runStart < 0 { runStart = y }
+    if !hit && runStart >= 0 {
+        if y - runStart > 2 { bands.append("\(runStart)-\(y - 1)") }
+        runStart = -1
+    }
+}
+if runStart >= 0 { bands.append("\(runStart)-\(height - 1)") }
+print("contentRowBands=\(bands.joined(separator: ", ")) of \(height)")

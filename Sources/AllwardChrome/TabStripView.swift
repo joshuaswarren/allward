@@ -19,6 +19,11 @@ public struct TabStripItem: Identifiable, Hashable, Sendable {
 /// session keeps the grid as the whole window (DESIGN-LANGUAGE §23.1: chrome is
 /// invisible until it carries something).
 public struct TabStripView: View {
+    /// A compact strip is one row of controls. Asking SwiftUI for a fitting
+    /// height here returns a figure far larger than the row it draws, which
+    /// silently steals rows from every terminal in the window.
+    public static let height: CGFloat = 30
+
     public let tabs: [TabStripItem]
     public let selected: TabID?
     public let roomTint: TokenColor
@@ -61,8 +66,8 @@ public struct TabStripView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, SpaceToken.inlineStandard.points)
-        .padding(.vertical, SpaceToken.inlineTight.points)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height,
+            alignment: .leading)
         .background(palette[.surface].swiftUIColor)
         .overlay(alignment: .bottom) {
             Rectangle()

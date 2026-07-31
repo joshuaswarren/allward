@@ -79,19 +79,25 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func layoutContent(in bounds: CGRect) {
+        // The content view is full-size, so the titlebar and unified toolbar
+        // sit above y=0 rather than beside it. Laying out from the top of the
+        // view puts the tab strip, and the grid's first rows, underneath them.
+        let topInset = max(0, bounds.height - (window?.contentLayoutRect.height ?? bounds.height))
         let seamWidth = StrokeToken.roomSeam.width(model.palette.settings)
-        roomSeam.frame = CGRect(x: 0, y: 0, width: seamWidth, height: bounds.height)
+        roomSeam.frame = CGRect(
+            x: 0, y: topInset, width: seamWidth, height: bounds.height - topInset)
         let contentX = seamWidth
         let contentWidth = bounds.width - seamWidth
-        let tabHeight = tabHost.isHidden ? 0 : tabHost.fittingSize.height
+        let tabHeight = tabHost.isHidden ? 0 : TabStripView.height
         let routerHeight = routerHost.isHidden ? 0 : routerHost.fittingSize.height
-        tabHost.frame = CGRect(x: contentX, y: 0, width: contentWidth, height: tabHeight)
+        tabHost.frame = CGRect(x: contentX, y: topInset, width: contentWidth, height: tabHeight)
         splitHost.frame = CGRect(
-            x: contentX, y: tabHeight, width: contentWidth,
-            height: max(0, bounds.height - tabHeight - routerHeight))
+            x: contentX, y: topInset + tabHeight, width: contentWidth,
+            height: max(0, bounds.height - topInset - tabHeight - routerHeight))
         routerHost.frame = CGRect(
             x: contentX, y: splitHost.frame.maxY, width: contentWidth, height: routerHeight)
-        overlayHost.frame = bounds
+        overlayHost.frame = CGRect(
+            x: 0, y: topInset, width: bounds.width, height: bounds.height - topInset)
     }
 
     // MARK: Palette and topology
@@ -190,13 +196,34 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// The area panes are laid out in, so a shell can be started at the size
+    /// it will actually occupy rather than a placeholder.
+    public var paneHostSize: CGSize? {
+        // Lay out from the content view: splitHost's own frame is set by its
+        // superview, so laying out only its subtree leaves it at zero on the
+        // first pass, before the window has ever been through layout.
+        window?.contentView?.layoutSubtreeIfNeeded()
+        let size = splitHost.bounds.size
+        return size.width > 1 && size.height > 1 ? size : nil
+    }
+
     /// Frames of the laid-out pane containers, for capture-mode diagnostics.
     public func layoutReport() -> String {
         let panes = splitHost.subviews.compactMap { $0 as? PaneContainerView }
             .map { "\($0.paneID.shortLabel)=\(Int($0.frame.width))x\(Int($0.frame.height))" }
         let card = overlayHost.isHidden ? "none" : cardReport()
+        let layoutRect = window.map {
+            "contentLayout=\(Int($0.contentLayoutRect.width))x\(Int($0.contentLayoutRect.height))"
+                + " content=\(Int($0.contentView?.bounds.height ?? 0))"
+                + " frame=\(Int($0.frame.height))"
+        } ?? "no window"
+        let strip = tabHost.isHidden
+            ? "hidden"
+            : "\(Int(tabHost.frame.width))x\(Int(tabHost.frame.height))"
+                + "@y\(Int(tabHost.frame.minY)) fitting=\(Int(tabHost.fittingSize.height))"
         return "splitHost=\(Int(splitHost.frame.width))x\(Int(splitHost.frame.height)) "
-            + "containers=[\(panes.joined(separator: ", "))] card=\(card)"
+            + "containers=[\(panes.joined(separator: ", "))] card=\(card) tabStrip=\(strip) "
+            + layoutRect
     }
 
     /// How much of the window a summoned surface actually covers. A panel that

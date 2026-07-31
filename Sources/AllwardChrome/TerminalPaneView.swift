@@ -152,12 +152,13 @@ public final class TerminalPaneView: NSView {
     /// Terminal geometry is derived from resolved font metrics, never guessed,
     /// so the renderer and the accessibility projection agree exactly.
     public var currentGeometry: TerminalGeometry {
-        let scale = metalLayer.contentsScale
-        let rect = gridRect
-        let columns = Int((rect.width * scale / metrics.cellWidth).rounded(.down))
-        let rows = Int((rect.height * scale / metrics.cellHeight).rounded(.down))
-        return TerminalGeometry(columns: max(1, columns), rows: max(1, rows))
+        TerminalGeometry.fitting(
+            gridRect.size, metrics: metrics, scale: metalLayer.contentsScale)
     }
+
+    /// The insets a pane puts around its grid, so a caller sizing a shell
+    /// before the view exists reaches the same answer this view will.
+    public static let gridInsetSize = NSSize(width: 20, height: 12)
 
     private func publishGeometry() {
         guard bounds.width > 0, bounds.height > 0 else { return }

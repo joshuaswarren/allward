@@ -11,12 +11,15 @@ extension AppModel {
         else { return [] }
         return window.tabs.enumerated().map { index, tab in
             let panes = tab.tree?.leaves ?? []
-            let title =
-                tab.focusedPane
-                .flatMap { pane in paneView(for: pane)?.snapshot?.title }
-                ?? topology.panes.first { panes.contains($0.id) }?
-                    .destination.provenanceLabel
-                ?? "Tab \(index + 1)"
+            // A tab is named by the same rule as a pane header, so two tabs on
+            // the same host do not both read as their route label.
+            let named = (tab.focusedPane ?? panes.first).flatMap { pane -> String? in
+                guard let snapshot = paneView(for: pane)?.snapshot,
+                    let entry = topology.panes.first(where: { $0.id == pane })
+                else { return nil }
+                return paneTitle(snapshot: snapshot, entry: entry)
+            }
+            let title = named ?? "Tab \(index + 1)"
             return TabStripItem(id: tab.id, title: title, paneCount: panes.count)
         }
     }
@@ -36,14 +39,13 @@ extension AppModel {
         guard case .applied = created else { return }
         await refreshTopology()
         let request = PaneCreationRequest(
-            window: window, tab: tab, geometry: .standard,
+            window: window, tab: tab, geometry: projectedPaneGeometry(),
             workingDirectory: activeRoom?.defaults.workingDirectory, environment: [:])
         await applyingLiveGeneration { generation in
             await control.createLocalPane(
                 target: Target(room: room), generation: generation, request: request,
                 idempotencyKey: IdempotencyKey(rawValue: UUID().uuidString))
         }
-        focusedTab = tab
         await refreshTopology()
     }
 
@@ -52,7 +54,6 @@ extension AppModel {
             let entry = window.tabs.first(where: { $0.id == tab }),
             let pane = entry.focusedPane ?? entry.tree?.leaves.first
         else { return }
-        focusedTab = tab
         await focus(pane)
     }
 

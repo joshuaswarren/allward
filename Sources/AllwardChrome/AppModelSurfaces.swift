@@ -3,8 +3,11 @@ import AllwardControl
 import AllwardCore
 import AllwardDesign
 import AllwardMultiplexer
+import AllwardRenderer
 import AllwardRooms
 import AllwardSurfaces
+import AllwardTerminal
+import AppKit
 import Foundation
 import Observation
 
@@ -21,6 +24,8 @@ private final class AppSurfaceState {
     var additionalWindows: [MainWindowController] = []
     var adapterSessionsByRecord: [RecordID: AdapterSession] = [:]
     @ObservationIgnored weak var observedWindow: MainWindowController?
+    /// The geometry the most recent shell was actually started at.
+    @ObservationIgnored var lastSpawnGeometry: TerminalGeometry?
     @ObservationIgnored var adapterTask: Task<Void, Never>?
 }
 
@@ -101,6 +106,98 @@ extension AppModel {
             return
         }
         await surfaceTeleport(to: item.target, adapterSession: adapterSession(for: item.id))
+    }
+
+    /// The grid each pane's terminal actually holds, and where its content
+    /// starts, so a claim about prompt position is a measurement.
+    public func gridReport() -> String {
+        let projected = projectedPaneGeometry()
+        let host = surfaceState(for: self).observedWindow?.paneHostSize
+        let hostText = host.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
+        let spawned = surfaceState(for: self).lastSpawnGeometry
+        let spawnText = spawned.map { "\($0.columns)x\($0.rows)" } ?? "nil"
+        return "projected=\(projected.columns)x\(projected.rows) spawned=\(spawnText) "
+            + "host=\(hostText) "
+            + containers.map { id, container in
+            guard let snapshot = container.terminal.snapshot else {
+                return "\(id.shortLabel)=none"
+            }
+            let firstUsedRow = snapshot.rows.firstIndex { !$0.allSatisfy(\.isBlank) }
+            let view = paneView(for: id)
+            let viewState = view.map {
+                "view=\(Int($0.bounds.width))x\(Int($0.bounds.height))"
+                    + " inTree=\($0.window != nil) still=\($0.snapshot != nil)"
+            } ?? "view=none"
+            return "\(id.shortLabel)=\(snapshot.geometry.columns)x\(snapshot.geometry.rows)"
+                + " firstRow=\(firstUsedRow.map(String.init) ?? "none")"
+                + " \(viewState)"
+        }
+        .sorted()
+        .joined(separator: " ")
+    }
+
+    /// Resolve the spawn geometry and remember it, so diagnostics can show the
+    /// size a shell actually started at rather than the size it ended up.
+    func recordedSpawnGeometry(splitting orientation: SplitOrientation? = nil)
+        -> TerminalGeometry
+    {
+        let geometry = projectedPaneGeometry(splitting: orientation)
+        surfaceState(for: self).lastSpawnGeometry = geometry
+        return geometry
+    }
+
+    /// The grid a newly created pane will occupy.
+    ///
+    /// A shell that starts at a placeholder size prints its first prompt into
+    /// that smaller grid, and a later resize cannot move what was already
+    /// drawn: the prompt stays stranded wherever the small grid left it. So the
+    /// size is resolved before the shell starts, from the pane the new one is
+    /// born beside, or from the window itself when there is no pane yet.
+    public func projectedPaneGeometry(splitting orientation: SplitOrientation? = nil)
+        -> TerminalGeometry
+    {
+        guard var size = projectedPaneArea() else { return .standard }
+        switch orientation {
+        case .horizontal: size.width = (size.width - 1) / 2
+        case .vertical: size.height = (size.height - 1) / 2
+        case nil: break
+        }
+        return TerminalGeometry.fitting(
+            CGSize(width: max(1, size.width), height: max(1, size.height)),
+            metrics: paneMetrics(), scale: referenceScale)
+    }
+
+    /// Cell metrics are rasterised in device pixels, so the grid arithmetic
+    /// only holds when both use the same scale. A window that has not reached a
+    /// screen yet still reports 1, which would start a shell at half the rows.
+    private var referenceScale: CGFloat {
+        if let pane = focusedPane ?? containers.keys.first,
+            let view = paneView(for: pane),
+            let scale = view.window?.screen?.backingScaleFactor
+        {
+            return scale
+        }
+        return surfaceState(for: self).observedWindow?.window?.screen?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+    }
+
+    private func projectedPaneArea() -> CGSize? {
+        if let pane = focusedPane ?? containers.keys.first, let view = paneView(for: pane) {
+            return view.bounds.size.reduced(by: TerminalPaneView.gridInsetSize)
+        }
+        guard let host = surfaceState(for: self).observedWindow?.paneHostSize else { return nil }
+        return host.reduced(by: TerminalPaneView.gridInsetSize)
+    }
+
+    private func paneMetrics() -> CellMetrics {
+        if let pane = focusedPane ?? containers.keys.first, let view = paneView(for: pane) {
+            return view.metrics
+        }
+        return FontMetrics.metrics(
+            family: configuration.terminal.fontFamily,
+            size: configuration.terminal.fontSize,
+            scale: referenceScale)
     }
 
     public func startSurfaceObservation(window: MainWindowController) async {
@@ -188,7 +285,7 @@ extension AppModel {
         let request = PaneCreationRequest(
             window: windowID,
             tab: tabID,
-            geometry: .standard,
+            geometry: recordedSpawnGeometry(),
             workingDirectory: room.defaults.workingDirectory,
             environment: [:]
         )
@@ -216,7 +313,6 @@ extension AppModel {
         recordSurfaceMutationResult(paneResult, action: "Create initial pane")
         guard case .applied = paneResult else { return }
         focusedWindow = windowID
-        focusedTab = tabID
         await refreshTopology()
 
         if retainWindowController {

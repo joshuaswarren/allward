@@ -6,13 +6,11 @@ import SwiftUI
 
 /// Captures the live application window to a PNG.
 ///
-/// `cacheDisplay` cannot read a `CAMetalLayer`, so the terminal surface is
-/// re-rendered from the pane's current snapshot through the same `SceneBuilder`
-/// the on-screen path uses and composited into the captured chrome. The result
-/// is the real window with real session content, not a mock.
-///
-/// Compositing order matters: a summoned surface covers the panes on screen, so
-/// it is redrawn above them here. Painting the terminal last would erase it.
+/// `cacheDisplay` cannot read a `CAMetalLayer`, so each pane is re-rendered
+/// from its current snapshot through the same `SceneBuilder` the on-screen path
+/// uses and composited into the captured chrome. Pane frames are converted into
+/// the capture view's own coordinates, so a pane lands exactly where it is laid
+/// out and never paints over the toolbar or tab strip above it.
 @MainActor
 public enum WindowCapture {
     public enum CaptureError: Error {
@@ -24,7 +22,6 @@ public enum WindowCapture {
     public static func capture(
         window: NSWindow, model: AppModel, to url: URL
     ) async throws {
-        let summoned = (window.windowController as? MainWindowController)?.summonedSurfaceView
         guard let contentView = window.contentView else { throw CaptureError.noWindow }
         // The titlebar and toolbar live above the content view, so capture the
         // window's frame view to evidence the whole window rather than a crop.
@@ -53,13 +50,17 @@ public enum WindowCapture {
             NSImage(cgImage: image, size: frame.size)
                 .draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
         }
-        if let summoned,
+        // A summoned surface covers the panes on screen, so it is redrawn above
+        // them here. Painting the terminal last would erase it.
+        if let summoned = (window.windowController as? MainWindowController)?
+            .summonedSurfaceView,
             let overlay = summoned.bitmapImageRepForCachingDisplay(in: summoned.bounds)
         {
             overlay.size = summoned.bounds.size
             summoned.cacheDisplay(in: summoned.bounds, to: overlay)
-            NSImage(size: summoned.bounds.size, flipped: false) { _ in
-                overlay.draw(in: CGRect(origin: .zero, size: summoned.bounds.size))
+            NSImage(size: summoned.bounds.size, flipped: false) { rect in
+                overlay.draw(in: rect)
+                return true
             }
             .draw(
                 in: summoned.convert(summoned.bounds, to: captureView),
