@@ -1,5 +1,6 @@
 import AllwardCore
 import AllwardDesign
+import AllwardRenderer
 import SwiftUI
 
 /// One tab as the strip needs it.
@@ -27,6 +28,11 @@ public struct TabStripView: View {
     public let tabs: [TabStripItem]
     public let selected: TabID?
     public let roomTint: TokenColor
+    /// The strip frames the grid, so it is painted from the grid's own theme.
+    /// Chrome colours follow the system appearance, which puts a white bar
+    /// against a black terminal on a light-mode Mac. Every Mac terminal tints
+    /// this area to the session background instead.
+    public let theme: TerminalTheme
     public let onSelect: @MainActor (TabID) -> Void
     public let onClose: @MainActor (TabID) -> Void
     public let onNew: @MainActor () -> Void
@@ -37,6 +43,7 @@ public struct TabStripView: View {
         tabs: [TabStripItem],
         selected: TabID?,
         roomTint: TokenColor,
+        theme: TerminalTheme,
         onSelect: @escaping @MainActor (TabID) -> Void,
         onClose: @escaping @MainActor (TabID) -> Void,
         onNew: @escaping @MainActor () -> Void
@@ -44,6 +51,7 @@ public struct TabStripView: View {
         self.tabs = tabs
         self.selected = selected
         self.roomTint = roomTint
+        self.theme = theme
         self.onSelect = onSelect
         self.onClose = onClose
         self.onNew = onNew
@@ -68,14 +76,29 @@ public struct TabStripView: View {
         .padding(.horizontal, SpaceToken.inlineStandard.points)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height,
             alignment: .leading)
-        .background(palette[.surface].swiftUIColor)
+        .background(theme.defaultBackground.swiftUIColor)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(palette[.strokeDivider].swiftUIColor)
+                .fill(separator.swiftUIColor)
                 .frame(height: StrokeToken.paneDivider.width(palette.settings))
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tabs")
+    }
+
+    /// A tab lifts off the strip by a few percent of the foreground, the same
+    /// way a terminal's own selection does, rather than by switching to a
+    /// chrome colour that has nothing to do with the session.
+    private var raisedSurface: TokenColor {
+        theme.defaultBackground.mixed(with: theme.defaultForeground, amount: 0.2)
+    }
+
+    private var dimmedText: TokenColor {
+        theme.defaultForeground.mixed(with: theme.defaultBackground, amount: 0.45)
+    }
+
+    private var separator: TokenColor {
+        theme.defaultBackground.mixed(with: theme.defaultForeground, amount: 0.18)
     }
 
     private func tabButton(_ tab: TabStripItem) -> some View {
@@ -100,16 +123,14 @@ public struct TabStripView: View {
             }
         }
         .foregroundStyle(
-            isSelected ? palette[.textPrimary].swiftUIColor : palette[.textSecondary].swiftUIColor
+            (isSelected ? theme.defaultForeground : dimmedText).swiftUIColor
         )
         .padding(.horizontal, SpaceToken.inlineStandard.points)
         .padding(.vertical, 3)
         .frame(maxWidth: 200)
         .background {
             RoundedRectangle(cornerRadius: RadiusToken.control.points, style: .continuous)
-                .fill(
-                    isSelected
-                        ? palette[.surfaceRaised].swiftUIColor : Color.clear)
+                .fill(isSelected ? raisedSurface.swiftUIColor : Color.clear)
         }
         .overlay(alignment: .bottom) {
             // The Room tint marks the selected tab; identity stays legible

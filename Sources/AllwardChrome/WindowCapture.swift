@@ -41,14 +41,20 @@ public enum WindowCapture {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         for (paneID, container) in model.containers {
-            guard let snapshot = model.paneView(for: paneID)?.snapshot else { continue }
+            guard let view = model.paneView(for: paneID), let snapshot = view.snapshot
+            else { continue }
             let terminal = container.terminal
             let frame = terminal.convert(terminal.bounds, to: captureView)
             guard frame.width > 1, frame.height > 1 else { continue }
             let image = try await renderTerminal(
-                snapshot: snapshot, view: terminal, model: model)
+                snapshot: snapshot, view: terminal, model: model,
+                focused: view.isPaneFocused)
+            // The same dimming the live pane applies, so a capture shows the
+            // window as it actually looks rather than an idealised version.
+            let opacity =
+                view.isPaneFocused ? 1 : CGFloat(TerminalPaneView.unfocusedOpacity)
             NSImage(cgImage: image, size: frame.size)
-                .draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
+                .draw(in: frame, from: .zero, operation: .sourceOver, fraction: opacity)
         }
         // A summoned surface covers the panes on screen, so it is redrawn above
         // them here. Painting the terminal last would erase it.
@@ -75,13 +81,14 @@ public enum WindowCapture {
     }
 
     private static func renderTerminal(
-        snapshot: TerminalSnapshot, view: TerminalPaneView, model: AppModel
+        snapshot: TerminalSnapshot, view: TerminalPaneView, model: AppModel,
+        focused: Bool
     ) async throws -> CGImage {
         let renderer = try OffscreenRenderer(metrics: view.metrics)
         return try await renderer.render(
             snapshot: snapshot,
             palette: model.palette,
             theme: model.terminalTheme,
-            focused: true)
+            focused: focused)
     }
 }

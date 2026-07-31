@@ -145,6 +145,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
                 selected: model.focusedTab,
                 roomTint: model.activeRoom?.baseTint
                     ?? DesignPalette.neutralTint(model.palette.appearance),
+                theme: model.terminalTheme,
                 onSelect: { [weak model] tab in Task { await model?.focusTab(tab) } },
                 onClose: { [weak model] tab in Task { await model?.closeTab(tab) } },
                 onNew: { [weak model] in Task { await model?.newTab() } }

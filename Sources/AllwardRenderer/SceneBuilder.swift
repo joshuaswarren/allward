@@ -99,7 +99,8 @@ public struct SceneBuilder: Sendable {
                 to: &row,
                 rowIndex: rowIndex,
                 columns: snapshot.geometry.columns,
-                theme: theme
+                theme: theme,
+                focused: focused
             )
             appendFocusIndicator(
                 to: &row,
@@ -313,12 +314,23 @@ public struct SceneBuilder: Sendable {
         to row: inout SceneRow,
         rowIndex: Int,
         columns: Int,
-        theme: TerminalTheme
+        theme: TerminalTheme,
+        focused: Bool
     ) {
         guard cursor.visible, cursor.row == rowIndex else { return }
         let column = min(max(cursor.column, 0), columns - 1)
         let x = Float(column) * Float(metrics.cellWidth)
         let y = Float(rowIndex) * Float(metrics.cellHeight)
+        // Every Mac terminal hollows the block cursor when the pane does not
+        // hold the keyboard. It is the clearest answer to "where does my
+        // typing go" and costs no chrome.
+        if case .block = cursor.shape, !focused {
+            appendOutline(
+                to: &row, x: x, y: y,
+                width: Float(metrics.cellWidth), height: Float(metrics.cellHeight),
+                color: theme.cursor.withAlpha(0.72))
+            return
+        }
         switch cursor.shape {
         case .block:
             row.cursorAndFocus.append(
@@ -351,6 +363,23 @@ public struct SceneBuilder: Sendable {
                 )
             )
         }
+    }
+
+    /// A one-pixel rectangle outline, for the unfocused block cursor.
+    private func appendOutline(
+        to row: inout SceneRow, x: Float, y: Float, width: Float, height: Float,
+        color: TokenColor
+    ) {
+        row.cursorAndFocus.append(
+            SceneRectangle(x: x, y: y, width: width, height: pixel, color: color))
+        row.cursorAndFocus.append(
+            SceneRectangle(
+                x: x, y: y + height - pixel, width: width, height: pixel, color: color))
+        row.cursorAndFocus.append(
+            SceneRectangle(x: x, y: y, width: pixel, height: height, color: color))
+        row.cursorAndFocus.append(
+            SceneRectangle(
+                x: x + width - pixel, y: y, width: pixel, height: height, color: color))
     }
 
     private func appendFocusIndicator(

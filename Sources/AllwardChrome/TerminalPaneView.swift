@@ -165,8 +165,17 @@ public final class TerminalPaneView: NSView {
         delegate?.pane(self, resizeTo: currentGeometry)
     }
 
+    /// An unfocused split recedes instead of competing. Every terminal that
+    /// supports splits does this; it answers "which pane am I typing into"
+    /// before the eye has to hunt for a focus ring.
+    public static let unfocusedOpacity: Float = 0.7
+
+    public private(set) var isPaneFocused = true
+
     public func apply(_ snapshot: TerminalSnapshot, focused: Bool) {
         self.snapshot = snapshot
+        isPaneFocused = focused
+        metalLayer.opacity = focused ? 1 : Self.unfocusedOpacity
         renderer?.update(
             snapshot: snapshot, palette: palette, theme: theme, focused: focused)
         setAccessibilityNeedsRefresh()
