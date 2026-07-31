@@ -56,6 +56,7 @@ public final class AppModel {
     /// system tab overview, so a tab here is an `NSWindow` and an Allward
     /// window is a tab group.
     private var tabWindows: [TabID: MainWindowController] = [:]
+    @ObservationIgnored let searchState = SearchState()
 
     /// The window the user is acting in.
     public var keyWindowController: MainWindowController? {

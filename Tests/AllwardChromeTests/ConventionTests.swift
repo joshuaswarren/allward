@@ -31,6 +31,9 @@ final class ConventionTests: XCTestCase {
             ("font.increase", "⌘+"),
             ("font.decrease", "⌘-"),
             ("font.reset", "⌘0"),
+            ("find.open", "⌘F"),
+            ("find.next", "⌘G"),
+            ("find.previous", "⇧⌘G"),
         ]
         for (id, label) in expected {
             guard let chord = installed[id] else {
@@ -68,6 +71,15 @@ final class ConventionTests: XCTestCase {
         // The palette took the editor convention rather than shadowing it.
         XCTAssertEqual(Shortcut.clearScreen.display, "⌘K")
         XCTAssertEqual(Shortcut.palette.display, "⇧⌘P")
+    }
+
+    @MainActor
+    func testEverySummonedSurfaceCanBeLeftByKeyboard() {
+        // Escape reaches the responder chain, so no surface can trap the
+        // keyboard even when SwiftUI focus is somewhere unexpected.
+        XCTAssertTrue(
+            MainWindowController.instancesRespond(to: #selector(NSResponder.cancelOperation(_:))),
+            "Escape must be handled on the responder chain, not only in SwiftUI")
     }
 
     @MainActor

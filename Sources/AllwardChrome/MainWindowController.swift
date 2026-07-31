@@ -25,6 +25,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         case diagnostics
         case roomSwitcher
         case hostPicker
+        case find
     }
 
     /// The tab this window is. Native tabbing makes a tab a real window, so

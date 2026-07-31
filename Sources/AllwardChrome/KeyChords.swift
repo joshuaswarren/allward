@@ -94,6 +94,9 @@ public enum Shortcut {
     public static let nextSplit = KeyChord("]", [.command])
     public static let toggleFullScreen = KeyChord("\r", [.command])
     public static let reloadConfiguration = KeyChord(",", [.command, .shift])
+    public static let find = KeyChord("f", [.command])
+    public static let findNext = KeyChord("g", [.command])
+    public static let findPrevious = KeyChord("g", [.command, .shift])
 
     /// Command-1 through Command-8 select a tab and Command-9 the last one,
     /// which is what every browser and every other terminal does.
@@ -151,5 +154,8 @@ public enum Shortcut {
         ("split.next", nextSplit),
         ("window.fullscreen", toggleFullScreen),
         ("config.reload", reloadConfiguration),
+        ("find.open", find),
+        ("find.next", findNext),
+        ("find.previous", findPrevious),
     ] + (1 ... 9).map { ("tab.select-\($0)", selectTab($0)) }
 }

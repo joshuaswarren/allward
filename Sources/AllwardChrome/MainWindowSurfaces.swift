@@ -9,6 +9,27 @@ import SwiftUI
 
 @MainActor
 extension MainWindowController {
+    public func presentFind() {
+        present(
+            .find,
+            content: FindView(
+                matchCount: model.searchMatchCount,
+                currentMatch: model.currentSearchMatch,
+                onQueryChanged: { [weak model] query in
+                    Task { await model?.search(for: query) }
+                },
+                onNext: { [weak self] in Task { await self?.stepSearch(forward: true) } },
+                onPrevious: { [weak self] in Task { await self?.stepSearch(forward: false) } },
+                onDismiss: { [weak self] in self?.dismissSummonedSurface() }
+            ))
+    }
+
+    /// Re-presents so the match tally stays truthful as it changes.
+    private func stepSearch(forward: Bool) async {
+        await model.stepSearchMatch(forward: forward)
+        if presentedSurface == .find { presentFind() }
+    }
+
     public func presentBoard() {
         guard let state = model.boardState else {
             model.lastActionMessage = "Board data has not loaded yet."

@@ -60,6 +60,8 @@ Room, never the system appearance.
 SSH. Add a host to the config and open it with `⇧⌘O`. The connection is direct. No
 multiplexer is installed on the far end, and nothing is required there.
 
+Find. `⌘F` searches the scrollback; `⌘G` and `⇧⌘G` walk the matches.
+
 The Board. `⇧⌘B`. The command palette is `⇧⌘P`; `⌘K` clears the screen. With no agents connected it says so plainly. Point an
 agent at the socket and it fills with that agent's live state and open
 tasks. Any permission request waiting on you shows up there too.

@@ -163,6 +163,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             await session?.write(Array((command + "\r").utf8))
             try? await Task.sleep(for: .seconds(3))
         }
+        // Steps that need the command's output to exist, such as searching it.
+        for step in Self.captureExercise(flag: "--then") {
+            await perform(step, window: window, model: model)
+            try? await Task.sleep(for: .milliseconds(900))
+        }
         try? await Task.sleep(for: .seconds(1))
         do {
             try await WindowCapture.capture(window: nsWindow, model: model, to: url)
@@ -187,9 +192,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     /// `--exercise a,b,c` drives real app operations before the capture so the
     /// evidence covers splits, tabs, and summoned surfaces rather than only the
     /// first launch state.
-    private static func captureExercise() -> [String] {
+    private static func captureExercise(flag: String = "--exercise") -> [String] {
         let arguments = CommandLine.arguments
-        guard let index = arguments.firstIndex(of: "--exercise"),
+        guard let index = arguments.firstIndex(of: flag),
             arguments.index(after: index) < arguments.endIndex
         else { return [] }
         return arguments[arguments.index(after: index)]
@@ -204,6 +209,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
                     + "firstResponder=\(window.window?.firstResponder.map { "\(type(of: $0))" } ?? "none") "
                     + "surface=\(window.presentedSurface.map { "\($0)" } ?? "none") "
                     + "gridBg=\(String(format: "%.2f", model.terminalTheme.defaultBackground.relativeLuminance)) "
+                    + "matches=\(model.searchMatchCount) "
                     + "tabs=\(model.tabOrder().count) "
                     + "note=\(model.lastActionMessage ?? "none")")
         }
@@ -211,6 +217,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "split-right": await model.splitFocusedPane(.horizontal)
         case "split-down": await model.splitFocusedPane(.vertical)
         case "new-tab": await model.newTab()
+        case "find":
+            window.presentFind()
+            await waitForSurface(window)
+        case let step where step.hasPrefix("search-"):
+            await model.search(for: String(step.dropFirst(7)))
         case "escape":
             window.cancelOperation(nil)
         case let step where step.hasPrefix("theme-"):
@@ -297,6 +308,10 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         add(editMenu, "Copy", #selector(copySelection(_:)), Shortcut.copy)
         add(editMenu, "Paste", #selector(pasteText(_:)), Shortcut.paste)
         add(editMenu, "Select all", #selector(selectAllText(_:)), Shortcut.selectAll)
+        editMenu.addItem(.separator())
+        add(editMenu, "Find…", #selector(showFind(_:)), Shortcut.find)
+        add(editMenu, "Find next", #selector(findNext(_:)), Shortcut.findNext)
+        add(editMenu, "Find previous", #selector(findPrevious(_:)), Shortcut.findPrevious)
         editItem.submenu = editMenu
         main.addItem(editItem)
 
@@ -456,6 +471,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc public func nextPrompt(_ sender: Any?) {
         Task { await model.jumpToPrompt(previous: false) }
+    }
+    @objc public func showFind(_ sender: Any?) { model.keyWindowController?.presentFind() }
+    @objc public func findNext(_ sender: Any?) {
+        Task { await model.stepSearchMatch(forward: true) }
+    }
+    @objc public func findPrevious(_ sender: Any?) {
+        Task { await model.stepSearchMatch(forward: false) }
     }
     @objc public func previousSplit(_ sender: Any?) {
         Task { await model.focusAdjacentPane(forward: false) }

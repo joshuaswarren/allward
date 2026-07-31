@@ -130,6 +130,60 @@ public actor Session {
         }
     }
 
+    /// Where a string appears in the scrollback.
+    ///
+    /// Each hit carries the scroll offset that puts its line on screen, so the
+    /// caller can bring a match into view without knowing how the buffer is
+    /// paged. Matching is case-insensitive, which is what a terminal's find
+    /// does unless told otherwise.
+    public func findMatches(of query: String, limit: Int = 500) -> [SearchMatch] {
+        guard !query.isEmpty else { return [] }
+        let original = terminal.snapshot()
+        var matches: [SearchMatch] = []
+        var seen: Set<LineID> = []
+        var offset = 0
+        let maximumOffset = original.scrollbackCount
+
+        while offset <= maximumOffset, matches.count < limit {
+            terminal.scroll(toOffset: offset)
+            let page = terminal.snapshot()
+            for (index, lineID) in page.rowIDs.enumerated()
+            where lineID.rawValue != 0 && !seen.contains(lineID) {
+                seen.insert(lineID)
+                let text = page.plainText(row: index)
+                var cursor = text.startIndex
+                while let found = text.range(
+                    of: query, options: .caseInsensitive, range: cursor ..< text.endIndex)
+                {
+                    matches.append(
+                        SearchMatch(
+                            line: lineID,
+                            column: text.distance(from: text.startIndex, to: found.lowerBound),
+                            length: text.distance(from: found.lowerBound, to: found.upperBound),
+                            scrollOffset: offset))
+                    cursor = found.upperBound
+                    if matches.count >= limit { break }
+                }
+            }
+            if offset == maximumOffset { break }
+            offset = min(maximumOffset, offset + page.geometry.rows)
+        }
+
+        terminal.scroll(toOffset: original.scrollOffset)
+        return matches.sorted { ($0.line, $0.column) < ($1.line, $1.column) }
+    }
+
+    /// Puts a match on screen and selects it.
+    public func reveal(_ match: SearchMatch) {
+        terminal.scroll(toOffset: match.scrollOffset)
+        terminal.setSelection(
+            Selection(
+                start: SelectionAnchor(line: match.line, graphemeOffset: match.column),
+                end: SelectionAnchor(
+                    line: match.line, graphemeOffset: match.column + match.length),
+                mode: .stream))
+    }
+
     func nextFinishedCommand(
         after existing: Set<LineID>,
         timeout: Duration

@@ -63,6 +63,7 @@ CODESIGN_IDENTITY="Apple Development: You (TEAMID)" bash scripts/make-app.sh
 | Cycle tabs | `⌃⇥` / `⌃⇧⇥` |
 | Select tab 1-8, last | `⌘1`…`⌘8`, `⌘9` |
 | Copy / paste / select all | `⌘C` / `⌘V` / `⌘A` |
+| Find / next / previous | `⌘F` / `⌘G` / `⇧⌘G` |
 | Bigger / smaller / actual text | `⌘+` / `⌘-` / `⌘0` |
 | Scroll top / bottom / page | `⌘↖` / `⌘↘` / `⌘⇞` `⌘⇟` |
 | Previous / next shell prompt | `⇧⌘↑` / `⇧⌘↓` |
