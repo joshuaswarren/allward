@@ -57,8 +57,6 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         startConfigurationReload(at: configurationURL, initial: configuration, model: model)
         if let capturePath = Self.capturePath() {
             await runCapture(window: window, model: model, to: capturePath)
-        } else {
-            window.presentOnboardingIfNeeded()
         }
     }
 
@@ -234,7 +232,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Menu
 
     /// The menu is the canonical key-equivalent registry. Every shortcut the
-    /// board, router, palette and onboarding advertise is defined exactly once,
+    /// board, router and palette advertise is defined exactly once,
     /// here, so they can never drift from what actually works.
     private func buildMenu() {
         let main = NSMenu()

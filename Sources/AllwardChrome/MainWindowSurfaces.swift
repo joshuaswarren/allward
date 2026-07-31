@@ -197,23 +197,6 @@ extension MainWindowController {
         )
     }
 
-    public func presentOnboardingIfNeeded() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: onboardingDismissedKey) else { return }
-        present(
-            .onboarding,
-            content: OnboardingView(
-                state: onboardingState(),
-                onPerform: { [weak self] action in self?.performOnboardingAction(action) },
-                dismissForNow: { [weak self] in self?.dismissSummonedSurface() },
-                dismissForever: { [weak self] in
-                    defaults.set(true, forKey: onboardingDismissedKey)
-                    self?.dismissSummonedSurface()
-                }
-            )
-        )
-    }
-
     private func performBoardAction(_ action: String) {
         switch action {
         case "create-local-terminal":
@@ -256,93 +239,6 @@ extension MainWindowController {
         }
     }
 
-    private func performOnboardingAction(_ action: OnboardingAction) {
-        if action.id.hasPrefix("room:") {
-            let value = String(action.id.dropFirst("room:".count))
-            guard let id = UUID(uuidString: value) else { return }
-            Task { await switchRoom(RoomID(rawValue: id), model: model) }
-            return
-        }
-        if action.id.hasPrefix("host:") {
-            let alias = String(action.id.dropFirst("host:".count))
-            Task { await model.newSSHPane(host: HostAlias(rawValue: alias)) }
-            return
-        }
-        switch action.id {
-        case "session.new-local": Task { await model.newLocalPane() }
-        case "surface.board": presentBoard()
-        case "surface.router": presentBoard()
-        case "surface.digest": presentDigest()
-        case "surface.command-palette": presentCommandPalette()
-        default: model.lastActionMessage = "Onboarding action \(action.title) is no longer available."
-        }
-    }
-
-    private func onboardingState() -> OnboardingViewState {
-        let roomActions = model.rooms.map { room in
-            OnboardingAction(
-                id: "room:\(room.id.rawValue.uuidString.lowercased())",
-                title: "Switch to \(room.name)",
-                shortcut: "⌘⇧M",
-                symbol: "rectangle.3.group"
-            )
-        }
-        var sessionActions = [
-            OnboardingAction(
-                id: "session.new-local",
-                title: "Create local terminal",
-                shortcut: "⌘T",
-                symbol: "terminal"
-            )
-        ]
-        if let host = model.configuration.hosts.first {
-            sessionActions.append(
-                OnboardingAction(
-                    id: "host:\(host.alias.rawValue)",
-                    title: "Connect to \(host.alias.rawValue)",
-                    shortcut: "⌘⇧O",
-                    symbol: "network"
-                )
-            )
-        }
-        let steps = [
-            OnboardingStep(
-                id: "rooms",
-                title: "Choose a Room",
-                explanation: "Rooms keep sessions, hosts, themes, and notification rules together.",
-                actions: roomActions
-            ),
-            OnboardingStep(
-                id: "sessions",
-                title: "Open a session",
-                explanation: "Start locally or connect to a host from your configuration.",
-                actions: sessionActions
-            ),
-            OnboardingStep(
-                id: "surfaces",
-                title: "Return to active work",
-                explanation: "Use the Board, router, and digest to find work without reading terminal pixels.",
-                actions: [
-                    OnboardingAction(
-                        id: "surface.board", title: "Open Board", shortcut: "⌘⇧B", symbol: "rectangle.grid.2x2"),
-                    OnboardingAction(
-                        id: "surface.router",
-                        title: "Focus router",
-                        shortcut: "⌘⇧R",
-                        symbol: "arrow.triangle.turn.up.right.diamond"
-                    ),
-                    OnboardingAction(
-                        id: "surface.digest", title: "Open digest", shortcut: "⌘⇧E", symbol: "text.document")
-                ]
-            )
-        ]
-        return OnboardingViewState(
-            presentation: ComposedPresentation(state: .live, usability: .usableActionCapable),
-            subject: PresentationSubject(componentName: "First run", target: "Configured Allward workspace"),
-            steps: steps,
-            currentStepIndex: 0
-        )
-    }
 
     private func diagnosticsState() async -> DiagnosticsViewState {
         let snapshot = await model.surfaces.snapshot()
@@ -453,7 +349,6 @@ extension MainWindowController {
     }
 }
 
-private let onboardingDismissedKey = "allward.onboarding.dismissed"
 
 private struct SelectionEntry: Identifiable, Hashable {
     let id: String

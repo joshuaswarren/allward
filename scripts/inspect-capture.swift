@@ -79,3 +79,27 @@ for y in 0..<height {
     if hit { rowsWithContent += 1 }
 }
 print("rowsWithContent=\(rowsWithContent) of \(height)")
+
+// Bounding box of a summoned card: the light region floating on the dark
+// scrim. Reported so a panel's real footprint is a measurement, not an
+// impression from a downscaled screenshot.
+// The titlebar and toolbar are chrome, not the card, and on a light system
+// appearance they are bright across the full width. Start below them.
+let chromeDepth = height / 10
+var minX = width, maxX = -1, minY = height, maxY = -1
+for y in stride(from: chromeDepth, to: height, by: 2) {
+    for x in stride(from: 0, to: width, by: 2) where luminance(x, y) > 0.45 {
+        if x < minX { minX = x }
+        if x > maxX { maxX = x }
+        if y < minY { minY = y }
+        if y > maxY { maxY = y }
+    }
+}
+if maxX >= minX && maxY >= minY {
+    let w = maxX - minX + 1, h = maxY - minY + 1
+    let ws = Int((Double(w) / Double(width) * 100).rounded())
+    let hs = Int((Double(h) / Double(height) * 100).rounded())
+    print("cardBox=\(w)x\(h) at (\(minX),\(minY)) = \(ws)%x\(hs)% of image")
+} else {
+    print("cardBox=none")
+}

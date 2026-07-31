@@ -3,7 +3,7 @@ import AppKit
 /// Every key equivalent the app advertises, defined exactly once.
 ///
 /// The menu installs these as real `NSMenuItem` key equivalents, and the
-/// palette, settings and onboarding render their labels from the same values.
+/// palette and settings render their labels from the same values.
 /// An advertised shortcut therefore cannot describe a binding that does not
 /// exist, and a label cannot drift from the key that actually fires.
 ///

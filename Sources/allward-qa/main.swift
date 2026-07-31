@@ -218,14 +218,6 @@ func run() async throws {
         }
 
         try renderSurface(
-            "onboarding-\(suffix)", size: CGSize(width: 720, height: 520), palette: palette,
-            into: directory
-        ) {
-            OnboardingView(
-                state: .fixture(), onPerform: { _ in }, dismissForNow: {}, dismissForever: {})
-        }
-
-        try renderSurface(
             "diagnostics-\(suffix)", size: CGSize(width: 860, height: 620), palette: palette,
             into: directory
         ) {

@@ -24,7 +24,6 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         case commandPalette
         case settings
         case diagnostics
-        case onboarding
         case roomSwitcher
         case hostPicker
     }
@@ -165,13 +164,19 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     public func present<Content: View>(_ surface: SummonedSurface, content: Content) {
         overlay = surface
         overlayHost.isHidden = false
+        let host = window?.contentView?.bounds.size ?? .zero
         overlayHost.rootView = AnyView(
-            content
+            SummonedCard(maxHeight: host.height * Self.surfaceHeightShare) { content }
                 .allwardPalette(model.palette)
                 .background(model.palette[.surfaceScrim].swiftUIColor)
         )
         window?.makeFirstResponder(overlayHost)
     }
+
+    /// A summoned surface is a card inside the window, so it must always read
+    /// as smaller than the window it sits in. Each surface picks its own width;
+    /// height is the axis that overflowed, so only height is capped.
+    private static let surfaceHeightShare: CGFloat = 0.82
 
     public func dismissSummonedSurface() {
         guard overlay != nil else { return }
@@ -189,8 +194,20 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     public func layoutReport() -> String {
         let panes = splitHost.subviews.compactMap { $0 as? PaneContainerView }
             .map { "\($0.paneID.shortLabel)=\(Int($0.frame.width))x\(Int($0.frame.height))" }
+        let card = overlayHost.isHidden ? "none" : cardReport()
         return "splitHost=\(Int(splitHost.frame.width))x\(Int(splitHost.frame.height)) "
-            + "containers=[\(panes.joined(separator: ", "))]"
+            + "containers=[\(panes.joined(separator: ", "))] card=\(card)"
+    }
+
+    /// How much of the window a summoned surface actually covers. A panel that
+    /// fills the window reads as a broken window rather than a designed card.
+    private func cardReport() -> String {
+        guard let host = window?.contentView else { return "unhosted" }
+        let card = overlayHost.fittingSize
+        let widthShare = Int((card.width / max(1, host.bounds.width) * 100).rounded())
+        let heightShare = Int((card.height / max(1, host.bounds.height) * 100).rounded())
+        return "\(Int(card.width.rounded()))x\(Int(card.height.rounded())) "
+            + "(\(widthShare)%x\(heightShare)% of window)"
     }
 
     public var presentedSurface: SummonedSurface? { overlay }
