@@ -45,8 +45,12 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         await model.loadRooms()
 
-        let window = MainWindowController(model: model)
+        // The first window is the first tab. Creating it up front gives the
+        // initial shell a real size to start at; reconciliation adopts it.
+        let firstTab = TabID()
+        let window = MainWindowController(model: model, tab: firstTab)
         mainWindow = window
+        model.attach(window: window)
         window.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -54,7 +58,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         // Observation first: it hands the model the window, which is how the
         // initial shell learns its real size before it prints a prompt.
         await model.startSurfaceObservation(window: window)
-        await model.openInitialSession()
+        await model.openInitialSession(tab: firstTab)
         startControlSocket(for: model)
         startConfigurationReload(at: configurationURL, initial: configuration, model: model)
         if let capturePath = Self.capturePath() {
@@ -166,7 +170,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print("captured \(url.path)")
             print("toolbar items: \(items.joined(separator: ", "))")
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
-            print("tabs: \(model.tabStripItems().count) layout: \(String(describing: model.currentLayout()))")
+            print("tabs: \(model.tabOrder().count) layout: \(String(describing: model.currentLayout()))")
             print(window.layoutReport())
             print("grids: \(model.gridReport())")
             print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
@@ -195,7 +199,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         defer {
             print(
                 "step \(step): panes=\(model.topology.panes.count) "
-                    + "tabs=\(model.tabStripItems().count) "
+                    + "tabs=\(model.tabOrder().count) "
                     + "note=\(model.lastActionMessage ?? "none")")
         }
         switch step {
@@ -331,13 +335,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     @objc public func focusUp(_ sender: Any?) { Task { await model.moveFocus(.up) } }
     @objc public func focusDown(_ sender: Any?) { Task { await model.moveFocus(.down) } }
 
-    @objc public func connectSSH(_ sender: Any?) { mainWindow?.presentHostPicker() }
-    @objc public func showBoard(_ sender: Any?) { mainWindow?.presentBoard() }
-    @objc public func focusRouter(_ sender: Any?) { mainWindow?.presentBoard() }
-    @objc public func showDigest(_ sender: Any?) { mainWindow?.presentDigest() }
-    @objc public func showCommandPalette(_ sender: Any?) { mainWindow?.presentCommandPalette() }
-    @objc public func showRoomSwitcher(_ sender: Any?) { mainWindow?.presentRoomSwitcher() }
+    @objc public func connectSSH(_ sender: Any?) { model.keyWindowController?.presentHostPicker() }
+    @objc public func showBoard(_ sender: Any?) { model.keyWindowController?.presentBoard() }
+    @objc public func focusRouter(_ sender: Any?) { model.keyWindowController?.presentBoard() }
+    @objc public func showDigest(_ sender: Any?) { model.keyWindowController?.presentDigest() }
+    @objc public func showCommandPalette(_ sender: Any?) { model.keyWindowController?.presentCommandPalette() }
+    @objc public func showRoomSwitcher(_ sender: Any?) { model.keyWindowController?.presentRoomSwitcher() }
     @objc public func teleport(_ sender: Any?) { Task { await model.teleportToRoutedDestination() } }
-    @objc public func showSettings(_ sender: Any?) { mainWindow?.presentSettings() }
-    @objc public func showDiagnostics(_ sender: Any?) { mainWindow?.presentDiagnostics() }
+    @objc public func showSettings(_ sender: Any?) { model.keyWindowController?.presentSettings() }
+    @objc public func showDiagnostics(_ sender: Any?) { model.keyWindowController?.presentDiagnostics() }
 }

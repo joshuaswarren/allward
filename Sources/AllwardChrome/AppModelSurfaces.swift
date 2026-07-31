@@ -21,7 +21,6 @@ private final class AppSurfaceState {
     var snapshot: SurfaceSnapshot?
     var projectedGeneration: Generation?
     var selectedSettingsTab: SettingsTab = .general
-    var additionalWindows: [MainWindowController] = []
     var adapterSessionsByRecord: [RecordID: AdapterSession] = [:]
     @ObservationIgnored weak var observedWindow: MainWindowController?
     /// The geometry the most recent shell was actually started at.
@@ -63,7 +62,7 @@ extension AppModel {
         set { surfaceState(for: self).lastActionMessage = newValue }
     }
 
-    public func openInitialSession() async {
+    public func openInitialSession(tab: TabID? = nil) async {
         guard topology.windows.isEmpty else {
             await refreshTopology()
             return
@@ -72,7 +71,7 @@ extension AppModel {
             lastActionMessage = "No configured Room is available for the initial session."
             return
         }
-        await createWindowSession(room: room, retainWindowController: false, requireLocalPane: false)
+        await createWindowSession(room: room, requireLocalPane: false, tab: tab)
     }
 
     public func openNewWindow() async {
@@ -80,7 +79,7 @@ extension AppModel {
             lastActionMessage = "No configured Room is available for a new window."
             return
         }
-        await createWindowSession(room: room, retainWindowController: true, requireLocalPane: true)
+        await createWindowSession(room: room, requireLocalPane: true)
     }
 
     public func moveFocus(_ direction: FocusDirection) async {
@@ -265,11 +264,11 @@ extension AppModel {
 
     private func createWindowSession(
         room: Room,
-        retainWindowController: Bool,
-        requireLocalPane: Bool
+        requireLocalPane: Bool,
+        tab preferredTab: TabID? = nil
     ) async {
         let windowID = WindowID()
-        let tabID = TabID()
+        let tabID = preferredTab ?? TabID()
         let tabResult = await control.createTab(
             target: Target(room: room.id),
             generation: await liveGeneration(),
@@ -314,14 +313,6 @@ extension AppModel {
         guard case .applied = paneResult else { return }
         focusedWindow = windowID
         await refreshTopology()
-
-        if retainWindowController {
-            let controller = MainWindowController(model: self)
-            surfaceState(for: self).additionalWindows.append(controller)
-            controller.showWindow(nil)
-            controller.topologyDidChange()
-            await startSurfaceObservation(window: controller)
-        }
     }
 
     private func roomAllowsLocalShell(_ room: Room) -> Bool {

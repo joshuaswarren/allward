@@ -52,12 +52,4 @@ final class PaneGeometryTests: XCTestCase {
         XCTAssertEqual(grid.width, pane.width - TerminalPaneView.gridInsetSize.width)
         XCTAssertEqual(grid.height, pane.height - TerminalPaneView.gridInsetSize.height)
     }
-
-    @MainActor
-    func testTabStripHeightIsOneCompactRow() {
-        // Asking SwiftUI for a fitting height returned 80pt for a single row,
-        // which silently stole five rows from every terminal in the window.
-        XCTAssertLessThanOrEqual(TabStripView.height, 36)
-        XCTAssertGreaterThanOrEqual(TabStripView.height, 24)
-    }
 }

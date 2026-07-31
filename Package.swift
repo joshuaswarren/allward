@@ -65,6 +65,7 @@ import PackageDescription
         .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),
         .testTarget(name: "AllwardMCPTests", dependencies: ["AllwardMCP"]),
         .testTarget(name: "AllwardChromeTests", dependencies: ["AllwardChrome"]),
+        .testTarget(name: "AllwardRendererTests", dependencies: ["AllwardRenderer"]),
     ]
     let darwinProducts: [Product] = [
         .executable(name: "allward", targets: ["allward"]),

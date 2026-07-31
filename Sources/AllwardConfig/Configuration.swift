@@ -53,6 +53,10 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
   public var cursorShape: CursorShape
   public var cursorBlink: Bool
   public var scrollbackCapacity: Int
+  /// Draw bold text in the bright half of the palette.
+  public var boldIsBright: Bool
+  /// WCAG contrast floor between text and its cell background. 1 disables it.
+  public var minimumContrast: Double
 
   public init(
     fontFamily: String = TerminalConfiguration.defaultFontFamily,
@@ -60,7 +64,9 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     theme: String = ThemeCatalog.darkDefault.name,
     cursorShape: CursorShape = .block,
     cursorBlink: Bool = false,
-    scrollbackCapacity: Int = 100_000
+    scrollbackCapacity: Int = 100_000,
+    boldIsBright: Bool = false,
+    minimumContrast: Double = 1
   ) {
     self.fontFamily = fontFamily
     self.fontSize = fontSize
@@ -68,6 +74,8 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     self.cursorShape = cursorShape
     self.cursorBlink = cursorBlink
     self.scrollbackCapacity = scrollbackCapacity
+    self.boldIsBright = boldIsBright
+    self.minimumContrast = max(1, minimumContrast)
   }
 }
 
@@ -328,7 +336,11 @@ public struct Configuration: Hashable, Sendable {
         terminalTable["cursor-shape"], key: "terminal.cursor-shape", default: CursorShape.block),
       cursorBlink: try boolean(terminalTable["cursor-blink"], key: "terminal.cursor-blink", default: false),
       scrollbackCapacity: try integer(
-        terminalTable["scrollback-capacity"], key: "terminal.scrollback-capacity", default: 100_000)
+        terminalTable["scrollback-capacity"], key: "terminal.scrollback-capacity", default: 100_000),
+      boldIsBright: try boolean(
+        terminalTable["bold-is-bright"], key: "terminal.bold-is-bright", default: false),
+      minimumContrast: try number(
+        terminalTable["minimum-contrast"], key: "terminal.minimum-contrast", default: 1)
     )
     let rooms = try arrayOfTables(root["rooms"], key: "rooms", default: [])
       .enumerated().map { try room(from: $0.element, index: $0.offset) }
@@ -428,6 +440,8 @@ public struct Configuration: Hashable, Sendable {
         "cursor-shape": .string(terminal.cursorShape.rawValue),
         "cursor-blink": .boolean(terminal.cursorBlink),
         "scrollback-capacity": .integer(Int64(terminal.scrollbackCapacity)),
+        "bold-is-bright": .boolean(terminal.boldIsBright),
+        "minimum-contrast": .float(terminal.minimumContrast),
       ]
     )
     root["rooms"] = .array(roomValues)

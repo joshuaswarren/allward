@@ -126,3 +126,24 @@ for y in (height / 10)..<height {
 }
 if runStart >= 0 { bands.append("\(runStart)-\(height - 1)") }
 print("contentRowBands=\(bands.joined(separator: ", ")) of \(height)")
+
+// The most common ink colour in the crop, so a claim about what colour text
+// was drawn in is a measurement rather than an impression. Bold weight alone
+// reads as "brighter" to the eye, which is exactly the confusion this settles.
+var inkCounts: [UInt32: Int] = [:]
+for y in 0..<height {
+    for x in 0..<width {
+        guard abs(luminance(x, y) - background) > 0.10,
+            let color = rep.colorAt(x: x, y: y)
+        else { continue }
+        let r = UInt32((color.redComponent * 255).rounded())
+        let g = UInt32((color.greenComponent * 255).rounded())
+        let b = UInt32((color.blueComponent * 255).rounded())
+        inkCounts[(r << 16) | (g << 8) | b, default: 0] += 1
+    }
+}
+let topInk = inkCounts.sorted { $0.value > $1.value }.prefix(4)
+let inkText = topInk.map { entry in
+    String(format: "#%06x(%d)", entry.key, entry.value)
+}.joined(separator: " ")
+print("dominantInk=\(inkText)")

@@ -10,7 +10,6 @@ import SwiftUI
 public final class MainWindowController: NSWindowController, NSWindowDelegate {
     let model: AppModel
     private let splitHost: SplitHostView
-    private let tabHost: NSHostingView<AnyView>
     private let routerHost: NSHostingView<AnyView>
     private let overlayHost: NSHostingView<AnyView>
     private let roomSeam = NSView()
@@ -28,10 +27,14 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         case hostPicker
     }
 
-    public init(model: AppModel) {
+    /// The tab this window is. Native tabbing makes a tab a real window, so
+    /// the controller renders exactly one tab's pane tree.
+    public let tab: TabID
+
+    public init(model: AppModel, tab: TabID) {
         self.model = model
+        self.tab = tab
         self.splitHost = SplitHostView(palette: model.palette)
-        self.tabHost = NSHostingView(rootView: AnyView(EmptyView()))
         self.routerHost = NSHostingView(rootView: AnyView(EmptyView()))
         self.overlayHost = NSHostingView(rootView: AnyView(EmptyView()))
 
@@ -44,6 +47,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.tabbingMode = .preferred
+        // Windows only group into one native tab bar when they agree on an
+        // identifier. Keying it to the Room means tabs group the way the user
+        // already thinks about their work.
+        window.tabbingIdentifier =
+            "allward.room.\(model.activeRoom.map { "\($0.id.rawValue)" } ?? "default")"
         window.isMovableByWindowBackground = false
         window.setFrameAutosaveName("AllwardMainWindow")
         super.init(window: window)
@@ -55,6 +63,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("MainWindowController is code-only") }
 
+    /// The plus button in the native tab bar, and Command-T when AppKit routes
+    /// it here. Both must make an Allward tab, not a bare window.
+    @objc public override func newWindowForTab(_ sender: Any?) {
+        Task { await model.newTab() }
+    }
+
     private func buildContent() {
         guard let window else { return }
         let root = FlippedView()
@@ -64,10 +78,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         splitHost.delegate = self
         roomSeam.wantsLayer = true
         overlayHost.isHidden = true
-        tabHost.isHidden = true
 
         root.addSubview(roomSeam)
-        root.addSubview(tabHost)
         root.addSubview(splitHost)
         root.addSubview(routerHost)
         root.addSubview(overlayHost)
@@ -88,12 +100,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             x: 0, y: topInset, width: seamWidth, height: bounds.height - topInset)
         let contentX = seamWidth
         let contentWidth = bounds.width - seamWidth
-        let tabHeight = tabHost.isHidden ? 0 : TabStripView.height
         let routerHeight = routerHost.isHidden ? 0 : routerHost.fittingSize.height
-        tabHost.frame = CGRect(x: contentX, y: topInset, width: contentWidth, height: tabHeight)
         splitHost.frame = CGRect(
-            x: contentX, y: topInset + tabHeight, width: contentWidth,
-            height: max(0, bounds.height - topInset - tabHeight - routerHeight))
+            x: contentX, y: topInset, width: contentWidth,
+            height: max(0, bounds.height - topInset - routerHeight))
         routerHost.frame = CGRect(
             x: contentX, y: splitHost.frame.maxY, width: contentWidth, height: routerHeight)
         overlayHost.frame = CGRect(
@@ -118,44 +128,32 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public func topologyDidChange() {
         splitHost.setContainers(model.containers)
-        splitHost.setLayout(model.currentLayout())
-        refreshTabStrip()
-        window?.title = model.activeRoom.map { "Allward — \($0.name)" } ?? "Allward"
+        splitHost.setLayout(model.layout(for: tab))
+        // The native tab bar shows this title, so it names the session rather
+        // than repeating the app name on every tab.
+        window?.title = model.tabTitle(for: tab)
+        window?.subtitle = model.activeRoom?.name ?? ""
         if let pane = model.focusedPane, let view = model.paneView(for: pane),
-            window?.firstResponder !== view
+            view.window === window, window?.firstResponder !== view
         {
             window?.makeFirstResponder(view)
         }
         window?.contentView?.needsLayout = true
     }
 
+    // MARK: Window lifecycle
 
-    /// The strip only exists once a second tab does, so a single session keeps
-    /// the whole window for the grid.
-    private func refreshTabStrip() {
-        let items = model.tabStripItems()
-        guard items.count > 1 else {
-            tabHost.isHidden = true
-            return
-        }
-        tabHost.isHidden = false
-        // NSHostingView paints its own backdrop, which on a light-appearance
-        // Mac is a bright band regardless of what the SwiftUI view fills. The
-        // host layer has to carry the session background too.
-        tabHost.wantsLayer = true
-        tabHost.layer?.backgroundColor = model.terminalTheme.defaultBackground.cgColor
-        tabHost.rootView = AnyView(
-            TabStripView(
-                tabs: items,
-                selected: model.focusedTab,
-                roomTint: model.activeRoom?.baseTint
-                    ?? DesignPalette.neutralTint(model.palette.appearance),
-                theme: model.terminalTheme,
-                onSelect: { [weak model] tab in Task { await model?.focusTab(tab) } },
-                onClose: { [weak model] tab in Task { await model?.closeTab(tab) } },
-                onNew: { [weak model] in Task { await model?.newTab() } }
-            )
-            .allwardPalette(model.palette))
+    /// Closing a tab's window closes the tab it stands for. Without this the
+    /// window disappears while the session keeps running with nothing to show
+    /// it, which is worse than either outcome on its own.
+    public func windowWillClose(_ notification: Notification) {
+        Task { [tab] in await model.closeTab(tab) }
+    }
+
+    /// The key window is the focused tab, so focus follows the tab bar.
+    public func windowDidBecomeKey(_ notification: Notification) {
+        guard model.focusedTab != tab else { return }
+        Task { [tab] in await model.focusTab(tab) }
     }
 
     /// The router strip lives outside the grid frame and never takes focus.
@@ -218,18 +216,20 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         let panes = splitHost.subviews.compactMap { $0 as? PaneContainerView }
             .map { "\($0.paneID.shortLabel)=\(Int($0.frame.width))x\(Int($0.frame.height))" }
         let card = overlayHost.isHidden ? "none" : cardReport()
+        let group = window?.tabGroup.map {
+            "tabGroup=\($0.windows.count) barVisible=\($0.isTabBarVisible)"
+                + " titles=[\($0.windows.map(\.title).joined(separator: "|"))]"
+                + " merge=\(NSWindow.allowsAutomaticWindowTabbing)"
+                + " id=\(self.window?.tabbingIdentifier ?? "none")"
+        } ?? "tabGroup=none"
         let layoutRect = window.map {
             "contentLayout=\(Int($0.contentLayoutRect.width))x\(Int($0.contentLayoutRect.height))"
                 + " content=\(Int($0.contentView?.bounds.height ?? 0))"
                 + " frame=\(Int($0.frame.height))"
         } ?? "no window"
-        let strip = tabHost.isHidden
-            ? "hidden"
-            : "\(Int(tabHost.frame.width))x\(Int(tabHost.frame.height))"
-                + "@y\(Int(tabHost.frame.minY)) fitting=\(Int(tabHost.fittingSize.height))"
         return "splitHost=\(Int(splitHost.frame.width))x\(Int(splitHost.frame.height)) "
-            + "containers=[\(panes.joined(separator: ", "))] card=\(card) tabStrip=\(strip) "
-            + layoutRect
+            + "containers=[\(panes.joined(separator: ", "))] card=\(card) "
+            + layoutRect + " " + group
     }
 
     /// How much of the window a summoned surface actually covers. A panel that

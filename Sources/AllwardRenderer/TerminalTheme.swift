@@ -9,13 +9,25 @@ public struct TerminalTheme: Hashable, Sendable {
     public let selectionBackground: TokenColor
     public let selectionForeground: TokenColor
 
+    /// Draw bold text in the bright half of the palette. Terminal.app and iTerm
+    /// have done this for decades; newer terminals default it off so a theme's
+    /// own colours survive. Off here for the same reason, on when asked.
+    public var boldIsBright: Bool
+
+    /// The contrast floor between a cell's text and its background, as a WCAG
+    /// ratio. A theme cannot anticipate every colour a program will ask for, so
+    /// this catches the combinations that come out unreadable. 1 disables it.
+    public var minimumContrast: Double
+
     public init(
         ansiColors: [TokenColor],
         defaultForeground: TokenColor,
         defaultBackground: TokenColor,
         cursor: TokenColor,
         selectionBackground: TokenColor,
-        selectionForeground: TokenColor
+        selectionForeground: TokenColor,
+        boldIsBright: Bool = false,
+        minimumContrast: Double = 1
     ) {
         precondition(ansiColors.count == 16, "A terminal theme requires exactly 16 ANSI colours")
         self.ansiColors = ansiColors
@@ -24,6 +36,8 @@ public struct TerminalTheme: Hashable, Sendable {
         self.cursor = cursor
         self.selectionBackground = selectionBackground
         self.selectionForeground = selectionForeground
+        self.boldIsBright = boldIsBright
+        self.minimumContrast = max(1, minimumContrast)
     }
 
     public var normalANSIColors: ArraySlice<TokenColor> { ansiColors[0 ..< 8] }
@@ -40,6 +54,47 @@ public struct TerminalTheme: Hashable, Sendable {
         case let .indexed(index):
             resolveIndexed(index)
         }
+    }
+
+    /// The palette entry for a cell's text, after the bold rule.
+    ///
+    /// Only the eight normal ANSI slots move: an explicit 256-colour index or
+    /// an RGB value is what the program asked for and is left alone.
+    public func resolveForeground(_ color: TerminalColor, bold: Bool) -> TokenColor {
+        guard boldIsBright, bold, case let .indexed(index) = color, index < 8 else {
+            return resolve(color)
+        }
+        return resolve(.indexed(index + 8))
+    }
+
+    /// Lifts text away from its background until it clears the contrast floor.
+    ///
+    /// The text moves, never the background: a program that painted a
+    /// background chose it, and changing it would corrupt block art and
+    /// selection rendering.
+    public func meetingContrast(
+        _ foreground: TokenColor, on background: TokenColor
+    ) -> TokenColor {
+        guard minimumContrast > 1,
+            foreground.contrastRatio(against: background) < minimumContrast
+        else { return foreground }
+        // Move toward whichever extreme the background is furthest from, which
+        // is the only direction that can reach the floor at all.
+        let target =
+            background.relativeLuminance > 0.5
+            ? TokenColor(0, 0, 0) : TokenColor(1, 1, 1)
+        var low = 0.0
+        var high = 1.0
+        for _ in 0 ..< 12 {
+            let mid = (low + high) / 2
+            let candidate = foreground.mixed(with: target, amount: mid)
+            if candidate.contrastRatio(against: background) < minimumContrast {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return foreground.mixed(with: target, amount: high)
     }
 
     public static let builtInDark = TerminalTheme(

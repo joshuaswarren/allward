@@ -429,11 +429,15 @@ public struct SceneBuilder: Sendable {
         _ attributes: CellAttributes,
         theme: TerminalTheme
     ) -> (foreground: TokenColor, background: TokenColor) {
-        let foreground = theme.resolve(attributes.foreground)
+        let bold = attributes.flags.contains(.bold)
+        let foreground = theme.resolveForeground(attributes.foreground, bold: bold)
         let background = theme.resolve(attributes.background)
-        return attributes.flags.contains(.inverse)
+        let (front, back) =
+            attributes.flags.contains(.inverse)
             ? (foreground: background, background: foreground)
             : (foreground: foreground, background: background)
+        // Contrast is enforced after inversion, on the pair that will be drawn.
+        return (foreground: theme.meetingContrast(front, on: back), background: back)
     }
 
     private func glyphPresentation(_ text: String) -> GlyphPresentation {

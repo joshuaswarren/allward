@@ -50,7 +50,18 @@ public final class AppModel {
 
     /// The grid theme the panes are painting, for the capture path.
     public var terminalTheme: AllwardRenderer.TerminalTheme { theme }
-    private weak var mainWindow: MainWindowController?
+    /// One real window per tab, grouped by AppKit into a native tab bar.
+    ///
+    /// A custom strip cannot join Mission Control, Merge All Windows, or the
+    /// system tab overview, so a tab here is an `NSWindow` and an Allward
+    /// window is a tab group.
+    private var tabWindows: [TabID: MainWindowController] = [:]
+
+    /// The window the user is acting in.
+    public var keyWindowController: MainWindowController? {
+        if let key = NSApp.keyWindow?.windowController as? MainWindowController { return key }
+        return focusedTab.flatMap { tabWindows[$0] } ?? tabWindows.values.first
+    }
 
     public init(
         configuration: Configuration,
@@ -65,7 +76,8 @@ public final class AppModel {
         self.adapter = adapter
         self.clock = clock
         self.theme = TerminalThemeBridge.rendererTheme(
-            named: configuration.rooms.first?.terminalThemeName ?? "Allward Night")
+            named: configuration.rooms.first?.terminalThemeName ?? "Allward Night",
+            terminal: configuration.terminal)
         self.palette = DesignPalette(
             appearance: .dark, settings: SystemAccessibility.current(), contentSize: .medium)
         self.topology = TopologySnapshot(generation: .initial, windows: [], panes: [])
@@ -79,7 +91,34 @@ public final class AppModel {
         observeSystemAppearance()
     }
 
-    public func attach(window: MainWindowController) { mainWindow = window }
+    public func attach(window: MainWindowController) { tabWindows[window.tab] = window }
+
+    /// Brings the set of real windows in line with the tabs that exist.
+    ///
+    /// New tabs open a window tabbed into the group; closed tabs close theirs.
+    func reconcileTabWindows() {
+        guard let window = topology.windows.first(where: { $0.id == focusedWindow })
+        else { return }
+        let live = Set(window.tabs.map(\.id))
+        for (tab, controller) in tabWindows where !live.contains(tab) {
+            tabWindows[tab] = nil
+            controller.window?.close()
+        }
+        for tab in window.tabs.map(\.id) where tabWindows[tab] == nil {
+            let controller = MainWindowController(model: self, tab: tab)
+            tabWindows[tab] = controller
+            if let sibling = tabWindows.first(where: { $0.key != tab })?.value.window,
+                let created = controller.window
+            {
+                sibling.addTabbedWindow(created, ordered: .above)
+            }
+            controller.showWindow(nil)
+        }
+        for controller in tabWindows.values { controller.topologyDidChange() }
+        if let focused = focusedTab, let controller = tabWindows[focused] {
+            controller.window?.makeKeyAndOrderFront(nil)
+        }
+    }
 
     // MARK: Appearance
 
@@ -101,7 +140,8 @@ public final class AppModel {
     }
 
     public func refreshPalette() {
-        let appearance = SystemAccessibility.appearance(for: mainWindow?.window?.contentView)
+        let appearance = SystemAccessibility.appearance(
+            for: keyWindowController?.window?.contentView)
         palette = DesignPalette(
             appearance: appearance,
             settings: SystemAccessibility.current(),
@@ -109,19 +149,20 @@ public final class AppModel {
             roomTint: activeRoom?.baseTint
         )
         theme = TerminalThemeBridge.rendererTheme(
-            named: activeRoom?.terminalThemeName ?? configuration.terminal.theme)
+            named: activeRoom?.terminalThemeName ?? configuration.terminal.theme,
+            terminal: configuration.terminal)
         for view in paneViews.values {
             view.palette = palette
             view.theme = theme
         }
-        mainWindow?.paletteDidChange(palette)
+        for controller in tabWindows.values { controller.paletteDidChange(palette) }
     }
 
     public func setContentSize(_ size: ContentSizeCategory) {
         palette = DesignPalette(
             appearance: palette.appearance, settings: palette.settings, contentSize: size,
             roomTint: activeRoom?.baseTint)
-        mainWindow?.paletteDidChange(palette)
+        for controller in tabWindows.values { controller.paletteDidChange(palette) }
     }
 
     // MARK: Rooms
@@ -211,7 +252,7 @@ public final class AppModel {
         for pane in topology.panes { adoptPane(pane.id) }
         let live = Set(topology.panes.map(\.id))
         for pane in paneViews.keys where !live.contains(pane) { releasePane(pane) }
-        mainWindow?.topologyDidChange()
+        reconcileTabWindows()
         await refreshSurfaceProjection()
     }
 
@@ -263,9 +304,13 @@ public final class AppModel {
     // MARK: Layout
 
     public func currentLayout() -> PaneLayoutNode? {
+        focusedTab.flatMap(layout(for:))
+    }
+
+    /// The pane tree a given tab's window shows.
+    public func layout(for tab: TabID) -> PaneLayoutNode? {
         guard let window = topology.windows.first(where: { $0.id == focusedWindow }),
-            let tab = window.tabs.first(where: { $0.id == window.focusedTab }),
-            let tree = tab.tree
+            let entry = window.tabs.first(where: { $0.id == tab }), let tree = entry.tree
         else { return nil }
         return PaneLayoutNode(tree)
     }

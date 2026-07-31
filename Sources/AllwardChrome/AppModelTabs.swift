@@ -6,22 +6,26 @@ extension AppModel {
     /// Tabs in reading order for the strip. The title is the focused pane's
     /// session title when there is one, so a tab names its work rather than an
     /// opaque identifier.
-    public func tabStripItems() -> [TabStripItem] {
-        guard let window = topology.windows.first(where: { $0.id == focusedWindow })
-        else { return [] }
-        return window.tabs.enumerated().map { index, tab in
-            let panes = tab.tree?.leaves ?? []
-            // A tab is named by the same rule as a pane header, so two tabs on
-            // the same host do not both read as their route label.
-            let named = (tab.focusedPane ?? panes.first).flatMap { pane -> String? in
-                guard let snapshot = paneView(for: pane)?.snapshot,
-                    let entry = topology.panes.first(where: { $0.id == pane })
-                else { return nil }
-                return paneTitle(snapshot: snapshot, entry: entry)
-            }
-            let title = named ?? "Tab \(index + 1)"
-            return TabStripItem(id: tab.id, title: title, paneCount: panes.count)
+    /// The name the native tab bar shows, by the same rule as a pane header.
+    public func tabTitle(for tab: TabID) -> String {
+        guard let window = topology.windows.first(where: { $0.id == focusedWindow }),
+            let entry = window.tabs.first(where: { $0.id == tab })
+        else { return "Allward" }
+        let panes = entry.tree?.leaves ?? []
+        guard let pane = entry.focusedPane ?? panes.first,
+            let topologyEntry = topology.panes.first(where: { $0.id == pane })
+        else { return "Allward" }
+        // Before the shell has produced a snapshot the route is still a better
+        // name than the app's own, which would repeat on every tab.
+        guard let snapshot = paneView(for: pane)?.snapshot else {
+            return topologyEntry.destination.provenanceLabel
         }
+        return paneTitle(snapshot: snapshot, entry: topologyEntry)
+    }
+
+    /// Tabs in reading order, for cycling.
+    public func tabOrder() -> [TabID] {
+        topology.windows.first { $0.id == focusedWindow }?.tabs.map(\.id) ?? []
     }
 
     /// A new tab with one local terminal, which is what every Mac terminal does
@@ -71,11 +75,11 @@ extension AppModel {
 
     /// Cycles tabs in reading order, wrapping at both ends.
     public func selectAdjacentTab(forward: Bool) async {
-        let items = tabStripItems()
-        guard items.count > 1, let current = focusedTab,
-            let index = items.firstIndex(where: { $0.id == current })
+        let order = tabOrder()
+        guard order.count > 1, let current = focusedTab,
+            let index = order.firstIndex(of: current)
         else { return }
-        let step = forward ? 1 : items.count - 1
-        await focusTab(items[(index + step) % items.count].id)
+        let step = forward ? 1 : order.count - 1
+        await focusTab(order[(index + step) % order.count])
     }
 }
