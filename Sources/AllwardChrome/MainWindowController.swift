@@ -10,6 +10,7 @@ import SwiftUI
 public final class MainWindowController: NSWindowController, NSWindowDelegate {
     let model: AppModel
     private let splitHost: SplitHostView
+    private let tabHost: NSHostingView<AnyView>
     private let routerHost: NSHostingView<AnyView>
     private let overlayHost: NSHostingView<AnyView>
     private let roomSeam = NSView()
@@ -31,6 +32,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     public init(model: AppModel) {
         self.model = model
         self.splitHost = SplitHostView(palette: model.palette)
+        self.tabHost = NSHostingView(rootView: AnyView(EmptyView()))
         self.routerHost = NSHostingView(rootView: AnyView(EmptyView()))
         self.overlayHost = NSHostingView(rootView: AnyView(EmptyView()))
 
@@ -41,7 +43,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false)
         window.title = "Allward"
         window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
         window.tabbingMode = .preferred
         window.isMovableByWindowBackground = false
         window.setFrameAutosaveName("AllwardMainWindow")
@@ -58,13 +60,15 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         let root = FlippedView()
         root.wantsLayer = true
-        root.layer?.backgroundColor = model.palette[.canvas].cgColor
+        root.layer?.backgroundColor = model.terminalTheme.defaultBackground.cgColor
 
         splitHost.delegate = self
         roomSeam.wantsLayer = true
         overlayHost.isHidden = true
+        tabHost.isHidden = true
 
         root.addSubview(roomSeam)
+        root.addSubview(tabHost)
         root.addSubview(splitHost)
         root.addSubview(routerHost)
         root.addSubview(overlayHost)
@@ -78,13 +82,16 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     private func layoutContent(in bounds: CGRect) {
         let seamWidth = StrokeToken.roomSeam.width(model.palette.settings)
         roomSeam.frame = CGRect(x: 0, y: 0, width: seamWidth, height: bounds.height)
+        let contentX = seamWidth
+        let contentWidth = bounds.width - seamWidth
+        let tabHeight = tabHost.isHidden ? 0 : tabHost.fittingSize.height
         let routerHeight = routerHost.isHidden ? 0 : routerHost.fittingSize.height
+        tabHost.frame = CGRect(x: contentX, y: 0, width: contentWidth, height: tabHeight)
         splitHost.frame = CGRect(
-            x: seamWidth, y: 0, width: bounds.width - seamWidth,
-            height: max(0, bounds.height - routerHeight))
+            x: contentX, y: tabHeight, width: contentWidth,
+            height: max(0, bounds.height - tabHeight - routerHeight))
         routerHost.frame = CGRect(
-            x: seamWidth, y: splitHost.frame.maxY, width: bounds.width - seamWidth,
-            height: routerHeight)
+            x: contentX, y: splitHost.frame.maxY, width: contentWidth, height: routerHeight)
         overlayHost.frame = bounds
     }
 
@@ -96,7 +103,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func applyPalette() {
-        window?.contentView?.layer?.backgroundColor = model.palette[.canvas].cgColor
+        window?.contentView?.layer?.backgroundColor =
+            model.terminalTheme.defaultBackground.cgColor
         roomSeam.layer?.backgroundColor = model.palette[.seam].cgColor
         window?.appearance = NSAppearance(
             named: model.palette.appearance == .dark ? .darkAqua : .aqua)
@@ -106,6 +114,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     public func topologyDidChange() {
         splitHost.setContainers(model.containers)
         splitHost.setLayout(model.currentLayout())
+        refreshTabStrip()
         window?.title = model.activeRoom.map { "Allward — \($0.name)" } ?? "Allward"
         if let pane = model.focusedPane, let view = model.paneView(for: pane),
             window?.firstResponder !== view
@@ -113,6 +122,29 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             window?.makeFirstResponder(view)
         }
         window?.contentView?.needsLayout = true
+    }
+
+
+    /// The strip only exists once a second tab does, so a single session keeps
+    /// the whole window for the grid.
+    private func refreshTabStrip() {
+        let items = model.tabStripItems()
+        guard items.count > 1 else {
+            tabHost.isHidden = true
+            return
+        }
+        tabHost.isHidden = false
+        tabHost.rootView = AnyView(
+            TabStripView(
+                tabs: items,
+                selected: model.focusedTab,
+                roomTint: model.activeRoom?.baseTint
+                    ?? DesignPalette.neutralTint(model.palette.appearance),
+                onSelect: { [weak model] tab in Task { await model?.focusTab(tab) } },
+                onClose: { [weak model] tab in Task { await model?.closeTab(tab) } },
+                onNew: { [weak model] in Task { await model?.newTab() } }
+            )
+            .allwardPalette(model.palette))
     }
 
     /// The router strip lives outside the grid frame and never takes focus.
@@ -151,6 +183,14 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         } else {
             window?.makeFirstResponder(splitHost)
         }
+    }
+
+    /// Frames of the laid-out pane containers, for capture-mode diagnostics.
+    public func layoutReport() -> String {
+        let panes = splitHost.subviews.compactMap { $0 as? PaneContainerView }
+            .map { "\($0.paneID.shortLabel)=\(Int($0.frame.width))x\(Int($0.frame.height))" }
+        return "splitHost=\(Int(splitHost.frame.width))x\(Int(splitHost.frame.height)) "
+            + "containers=[\(panes.joined(separator: ", "))]"
     }
 
     public var presentedSurface: SummonedSurface? { overlay }

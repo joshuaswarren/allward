@@ -135,10 +135,25 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     private func runCapture(window: MainWindowController, model: AppModel, to url: URL) async {
         guard let nsWindow = window.window else { exit(2) }
+        // Wait for the first pane to exist rather than guessing a duration, so
+        // a loaded machine cannot produce a capture of a half-started app.
+        for _ in 0..<60 where model.focusedPane == nil {
+            try? await Task.sleep(for: .milliseconds(250))
+            await model.refreshTopology()
+        }
+        guard model.focusedPane != nil else {
+            FileHandle.standardError.write(Data("capture failed: no pane started\n".utf8))
+            exit(4)
+        }
         // Let the shell produce its first prompt so the capture shows real
         // session content rather than an empty grid.
-        try? await Task.sleep(for: .seconds(3))
+        try? await Task.sleep(for: .seconds(2))
         await model.refreshTopology()
+        print("exercise steps: \(Self.captureExercise())")
+        for step in Self.captureExercise() {
+            await perform(step, window: window, model: model)
+            try? await Task.sleep(for: .milliseconds(900))
+        }
         if let command = Self.captureCommand(), let pane = model.focusedPane {
             let session = await model.control.session(for: pane)
             await session?.write(Array((command + "\r").utf8))
@@ -151,10 +166,47 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print("captured \(url.path)")
             print("toolbar items: \(items.joined(separator: ", "))")
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
+            print("tabs: \(model.tabStripItems().count) layout: \(String(describing: model.currentLayout()))")
+            print(window.layoutReport())
+            print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
+            if let message = model.lastActionMessage { print("note: \(message)") }
             exit(0)
         } catch {
             FileHandle.standardError.write(Data("capture failed: \(error)\n".utf8))
             exit(3)
+        }
+    }
+
+
+    /// `--exercise a,b,c` drives real app operations before the capture so the
+    /// evidence covers splits, tabs, and summoned surfaces rather than only the
+    /// first launch state.
+    private static func captureExercise() -> [String] {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--exercise"),
+            arguments.index(after: index) < arguments.endIndex
+        else { return [] }
+        return arguments[arguments.index(after: index)]
+            .split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func perform(_ step: String, window: MainWindowController, model: AppModel) async {
+        defer {
+            print(
+                "step \(step): panes=\(model.topology.panes.count) "
+                    + "tabs=\(model.tabStripItems().count) "
+                    + "note=\(model.lastActionMessage ?? "none")")
+        }
+        switch step {
+        case "split-right": await model.splitFocusedPane(.horizontal)
+        case "split-down": await model.splitFocusedPane(.vertical)
+        case "new-tab": await model.newTab()
+        case "board": window.presentBoard()
+        case "digest": window.presentDigest()
+        case "palette": window.presentCommandPalette()
+        case "settings": window.presentSettings()
+        case "rooms": window.presentRoomSwitcher()
+        default: break
         }
     }
 
@@ -185,11 +237,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
         let fileItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        add(fileMenu, "New local terminal", #selector(newLocalTerminal(_:)), "t", [.command])
+        add(fileMenu, "New tab", #selector(newTab(_:)), "t", [.command])
+        add(fileMenu, "New pane in this tab", #selector(newLocalTerminal(_:)), "t", [.command, .option])
         add(fileMenu, "New window", #selector(newWindow(_:)), "n", [.command])
         add(fileMenu, "Connect to SSH host…", #selector(connectSSH(_:)), "o", [.command, .shift])
         fileMenu.addItem(.separator())
         add(fileMenu, "Close pane", #selector(closePane(_:)), "w", [.command])
+        add(fileMenu, "Close tab", #selector(closeTab(_:)), "w", [.command, .shift])
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
@@ -202,6 +256,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         add(viewMenu, "Focus pane right", #selector(focusRight(_:)), "\u{F703}", [.command, .option])
         add(viewMenu, "Focus pane up", #selector(focusUp(_:)), "\u{F700}", [.command, .option])
         add(viewMenu, "Focus pane down", #selector(focusDown(_:)), "\u{F701}", [.command, .option])
+        viewMenu.addItem(.separator())
+        add(viewMenu, "Next tab", #selector(nextTab(_:)), "\u{0009}", [.control])
+        add(viewMenu, "Previous tab", #selector(previousTab(_:)), "\u{0009}", [.control, .shift])
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 
@@ -233,6 +290,17 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Actions
 
     @objc public func newLocalTerminal(_ sender: Any?) { Task { await model.newLocalPane() } }
+    @objc public func newTab(_ sender: Any?) { Task { await model.newTab() } }
+    @objc public func closeTab(_ sender: Any?) {
+        guard let tab = model.focusedTab else { return }
+        Task { await model.closeTab(tab) }
+    }
+    @objc public func nextTab(_ sender: Any?) {
+        Task { await model.selectAdjacentTab(forward: true) }
+    }
+    @objc public func previousTab(_ sender: Any?) {
+        Task { await model.selectAdjacentTab(forward: false) }
+    }
     @objc public func newWindow(_ sender: Any?) { Task { await model.openNewWindow() } }
     @objc public func closePane(_ sender: Any?) { Task { await model.closeFocusedPane() } }
     @objc public func splitRight(_ sender: Any?) {

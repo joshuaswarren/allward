@@ -57,7 +57,8 @@ public final class SplitHostView: NSView {
     /// Registers the container for each pane. Containers are owned by the model
     /// so a pane keeps its terminal across layout changes.
     public func setContainers(_ newContainers: [PaneID: PaneContainerView]) {
-        for (_, container) in containers where container.superview === self {
+        for (pane, container) in containers
+        where container.superview === self && newContainers[pane] !== container {
             container.removeFromSuperview()
         }
         containers = newContainers
@@ -73,7 +74,9 @@ public final class SplitHostView: NSView {
         super.layout()
         for divider in dividers { divider.removeFromSuperview() }
         dividers.removeAll(keepingCapacity: true)
-        for (_, container) in containers where container.superview === self {
+        let live = Set(layoutTree?.leaves ?? [])
+        for (pane, container) in containers
+        where container.superview === self && !live.contains(pane) {
             container.removeFromSuperview()
         }
         guard let layoutTree else { return }
@@ -88,8 +91,9 @@ public final class SplitHostView: NSView {
         switch node {
         case .leaf(let pane):
             guard let container = containers[pane] else { return }
-            container.frame = rect.integral
-            addSubview(container)
+            if container.superview !== self { addSubview(container) }
+            let frame = rect.integral
+            if container.frame != frame { container.frame = frame }
         case .split(let axis, let ratio, let first, let second):
             let clamped = min(max(ratio, 0.08), 0.92)
             let (firstRect, dividerRect, secondRect) = divide(rect, axis: axis, ratio: clamped)

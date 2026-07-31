@@ -29,7 +29,11 @@ public final class TerminalPaneView: NSView {
         didSet { renderer?.invalidatePalette(); needsDisplay = true }
     }
     public var theme: TerminalTheme {
-        didSet { renderer?.invalidateTheme(); needsDisplay = true }
+        didSet {
+            renderer?.invalidateTheme()
+            layer?.backgroundColor = theme.defaultBackground.cgColor
+            needsDisplay = true
+        }
     }
     /// The Room tint drawn as the pane's seam. Identity stays legible without
     /// hue through the header name, so this is decoration plus reinforcement.
@@ -43,6 +47,13 @@ public final class TerminalPaneView: NSView {
     private var trackingAreaRef: NSTrackingArea?
     private var pendingMouseButton: Int?
 
+    /// Breathing room between the window edge and the first cell. Every mature
+    /// terminal has it; without it the first column collides with the frame and
+    /// the window reads as broken rather than dense.
+    public var gridInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10) {
+        didSet { needsLayout = true }
+    }
+
     public init(palette: DesignPalette, theme: TerminalTheme, fontFamily: String?, fontSize: Double)
     {
         self.palette = palette
@@ -52,11 +63,11 @@ public final class TerminalPaneView: NSView {
         self.metrics = FontMetrics.metrics(family: fontFamily, size: fontSize, scale: 2)
         super.init(frame: .zero)
         wantsLayer = true
-        layer = metalLayer
+        layer?.backgroundColor = theme.defaultBackground.cgColor
         metalLayer.isOpaque = true
         metalLayer.contentsGravity = .topLeft
         metalLayer.needsDisplayOnBoundsChange = true
-        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(metalLayer)
         allowedTouchTypes = []
     }
 
@@ -84,6 +95,9 @@ public final class TerminalPaneView: NSView {
             self.scheduler = scheduler
         } else {
             renderer?.updateMetrics(metrics)
+            // Returning to a window after being reparented must restart the
+            // display link, or the pane goes permanently black.
+            scheduler?.requestFrame()
         }
         publishGeometry()
     }
@@ -95,13 +109,33 @@ public final class TerminalPaneView: NSView {
         if newWindow == nil { scheduler?.invalidate() }
     }
 
-    public override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
+    /// The rect the grid occupies, inside the padding.
+    private var gridRect: CGRect {
+        CGRect(
+            x: gridInsets.left, y: gridInsets.top,
+            width: max(1, bounds.width - gridInsets.left - gridInsets.right),
+            height: max(1, bounds.height - gridInsets.top - gridInsets.bottom))
+    }
+
+    public override func layout() {
+        super.layout()
         let scale = window?.backingScaleFactor ?? metalLayer.contentsScale
+        let rect = gridRect
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.frame = rect
+        metalLayer.contentsScale = scale
         metalLayer.drawableSize = CGSize(
-            width: max(1, newSize.width * scale), height: max(1, newSize.height * scale))
+            width: max(1, rect.width * scale), height: max(1, rect.height * scale))
+        layer?.backgroundColor = theme.defaultBackground.cgColor
+        CATransaction.commit()
         renderer?.setDrawableSize(metalLayer.drawableSize, scale: scale)
         publishGeometry()
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
     }
 
     public override func updateTrackingAreas() {
@@ -119,8 +153,9 @@ public final class TerminalPaneView: NSView {
     /// so the renderer and the accessibility projection agree exactly.
     public var currentGeometry: TerminalGeometry {
         let scale = metalLayer.contentsScale
-        let columns = Int((bounds.width * scale / metrics.cellWidth).rounded(.down))
-        let rows = Int((bounds.height * scale / metrics.cellHeight).rounded(.down))
+        let rect = gridRect
+        let columns = Int((rect.width * scale / metrics.cellWidth).rounded(.down))
+        let rows = Int((rect.height * scale / metrics.cellHeight).rounded(.down))
         return TerminalGeometry(columns: max(1, columns), rows: max(1, rows))
     }
 
@@ -190,7 +225,9 @@ public final class TerminalPaneView: NSView {
     // MARK: Mouse
 
     private func gridPosition(for event: NSEvent) -> (row: Int, column: Int) {
-        let point = convert(event.locationInWindow, from: nil)
+        let raw = convert(event.locationInWindow, from: nil)
+        let rect = gridRect
+        let point = CGPoint(x: raw.x - rect.minX, y: raw.y - rect.minY)
         let scale = metalLayer.contentsScale
         let column = Int((point.x * scale / metrics.cellWidth).rounded(.down))
         let row = Int((point.y * scale / metrics.cellHeight).rounded(.down))

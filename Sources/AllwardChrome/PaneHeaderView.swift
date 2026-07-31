@@ -149,18 +149,27 @@ public struct PaneHeaderView: View {
                     .truncationMode(.head)
             }
         }
-        .accessibilityLabel(provenanceParts.joined(separator: ", "))
+        .accessibilityLabel(provenanceDescription)
     }
 
     private var provenanceParts: [String] {
         var parts: [String] = []
         if let host = model.host { parts.append(host) }
         if let workspace = model.workspace { parts.append(workspace) }
-        parts.append(model.paneLabel)
         return parts
     }
 
+    /// The full provenance, including the pane identity, for assistive tech.
+    private var provenanceDescription: String {
+        (provenanceParts + [model.paneLabel]).joined(separator: ", ")
+    }
+
+    @ViewBuilder
     private var stateBadge: some View {
+        if model.presentation.state != .live { liveStateBadge }
+    }
+
+    private var liveStateBadge: some View {
         let mark = StateMark.mark(for: model.presentation.state)
         return HStack(spacing: SpaceToken.inlineTight.points) {
             Image(systemName: mark.symbolName)

@@ -86,7 +86,7 @@ extension AppModel {
         }
         let result = await control.movePaneFocus(
             target: paneTarget(entry, pane),
-            generation: topology.generation,
+            generation: await liveGeneration(),
             direction: direction,
             idempotencyKey: surfaceMutationKey()
         )
@@ -154,7 +154,7 @@ extension AppModel {
         }
         let result = await control.teleport(
             target: Target(room: target.room),
-            generation: topology.generation,
+            generation: await liveGeneration(),
             to: destination,
             idempotencyKey: surfaceMutationKey()
         )
@@ -175,7 +175,7 @@ extension AppModel {
         let tabID = TabID()
         let tabResult = await control.createTab(
             target: Target(room: room.id),
-            generation: topology.generation,
+            generation: await liveGeneration(),
             window: windowID,
             tab: tabID,
             idempotencyKey: surfaceMutationKey()
@@ -381,7 +381,12 @@ private func projectSurfaceSnapshot(
     model.digestState = SurfaceProjection.digest(snapshot.digest, rooms: model.rooms, now: now)
 
     let targetWindow = window ?? state.observedWindow
-    if let routerState = model.routerState {
+    // DESIGN-LANGUAGE §23.5 allows the strip to be absent with nothing
+    // actionable. A permanent "no actionable items" band is chrome that earns
+    // nothing; the Board command stays in the toolbar and the menu.
+    if let routerState = model.routerState, routerState.actionableCount > 0
+        || !routerState.items.isEmpty
+    {
         targetWindow?.setRouterStrip(
             RouterStripView(
                 state: routerState,
@@ -475,7 +480,7 @@ func switchRoom(_ roomID: RoomID, model: AppModel) async {
         window: window,
         room: roomID,
         target: Target(room: currentRoom),
-        generation: model.topology.generation,
+        generation: await model.liveGeneration(),
         idempotencyKey: surfaceMutationKey()
     )
     model.recordSurfaceMutationResult(result, action: "Switch Room")

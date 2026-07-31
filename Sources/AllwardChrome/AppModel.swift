@@ -42,6 +42,9 @@ public final class AppModel {
     private var paneContainers: [PaneID: PaneContainerView] = [:]
     private var snapshotTasks: [PaneID: Task<Void, Never>] = [:]
     private var theme: AllwardRenderer.TerminalTheme
+
+    /// The grid theme the panes are painting, for the capture path.
+    public var terminalTheme: AllwardRenderer.TerminalTheme { theme }
     private weak var mainWindow: MainWindowController?
 
     public init(
@@ -56,7 +59,8 @@ public final class AppModel {
         self.surfaces = surfaces
         self.adapter = adapter
         self.clock = clock
-        self.theme = AllwardRenderer.TerminalTheme.builtInDark
+        self.theme = TerminalThemeBridge.rendererTheme(
+            named: configuration.rooms.first?.terminalThemeName ?? "Allward Night")
         self.palette = DesignPalette(
             appearance: .dark, settings: SystemAccessibility.current(), contentSize: .medium)
         self.topology = TopologySnapshot(generation: .initial, windows: [], panes: [])
@@ -99,10 +103,8 @@ public final class AppModel {
             contentSize: palette.contentSize,
             roomTint: activeRoom?.baseTint
         )
-        theme =
-            appearance == .dark
-            ? AllwardRenderer.TerminalTheme.builtInDark
-            : AllwardRenderer.TerminalTheme.builtInLight
+        theme = TerminalThemeBridge.rendererTheme(
+            named: activeRoom?.terminalThemeName ?? configuration.terminal.theme)
         for view in paneViews.values {
             view.palette = palette
             view.theme = theme
@@ -211,6 +213,20 @@ public final class AppModel {
 
     // MARK: Headers
 
+    /// The user-facing session name for a pane header, in order of how much it
+    /// tells a human: the shell's own title, then the working directory, then
+    /// the route it came from.
+    private func paneTitle(snapshot: TerminalSnapshot, entry: PaneTopology) -> String {
+        if let title = snapshot.title, !title.isEmpty { return title }
+        if let directory = snapshot.commandRegions.last?.workingDirectory,
+            directory.isEmpty == false
+        {
+            let name = (directory as NSString).lastPathComponent
+            return name.isEmpty ? directory : name
+        }
+        return entry.destination.provenanceLabel
+    }
+
     private func refreshHeader(for pane: PaneID, snapshot: TerminalSnapshot) {
         guard let entry = topology.panes.first(where: { $0.id == pane }),
             let container = paneContainers[pane]
@@ -221,7 +237,7 @@ public final class AppModel {
             connection: .ready
         )
         let presentation = PresentationComposer.compose(composition)
-        let title = snapshot.title ?? entry.destination.provenanceLabel
+        let title = paneTitle(snapshot: snapshot, entry: entry)
         let model = PaneHeaderModel(
             roomName: name(for: entry.target.room),
             roomTint: tint(for: entry.target.room),
@@ -258,6 +274,37 @@ public final class AppModel {
         Target(room: entry.target.room, session: entry.target.session, pane: pane)
     }
 
+    /// The control layer rejects a mutation carrying a stale generation, which
+    /// is correct. The UI therefore reads the live generation immediately
+    /// before it acts instead of trusting its cached snapshot.
+    /// Applies a mutation against the live generation, retrying once when the
+    /// control layer reports a stale generation.
+    ///
+    /// The strict generation check exists so an external caller cannot act on a
+    /// stale view, and it stays strict. The owning UI, though, is acting on
+    /// whatever is current by definition, and another of its own operations can
+    /// land between reading the generation and using it. One bounded retry
+    /// resolves that without weakening the contract: the retry revalidates the
+    /// target, so a genuine conflict still fails.
+    @discardableResult
+    func applyingLiveGeneration(
+        _ operation: (Generation) async -> ControlMutationResult
+    ) async -> ControlMutationResult {
+        var result = await operation(await liveGeneration())
+        if case .rejected(.staleGeneration) = result {
+            result = await operation(await liveGeneration())
+        }
+        if case let .rejected(rejection) = result {
+            lastActionMessage = "Operation refused: \(rejection)"
+        }
+        return result
+    }
+
+    func liveGeneration() async -> Generation {
+        topology = await control.listPanes()
+        return topology.generation
+    }
+
     private func nextKey() -> IdempotencyKey { IdempotencyKey(rawValue: UUID().uuidString) }
 
     public func newLocalPane() async {
@@ -267,9 +314,11 @@ public final class AppModel {
         let request = PaneCreationRequest(
             window: window, tab: tab, geometry: .standard,
             workingDirectory: activeRoom?.defaults.workingDirectory, environment: [:])
-        _ = await control.createLocalPane(
-            target: Target(room: room), generation: topology.generation, request: request,
-            idempotencyKey: nextKey())
+        await applyingLiveGeneration { generation in
+            await control.createLocalPane(
+                target: Target(room: room), generation: generation, request: request,
+                idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 
@@ -279,30 +328,46 @@ public final class AppModel {
         else { return }
         let request = PaneCreationRequest(
             window: window, tab: tab, geometry: .standard, workingDirectory: nil, environment: [:])
-        _ = await control.createSSHPane(
-            target: Target(room: room), generation: topology.generation, request: request,
-            host: host, idempotencyKey: nextKey())
+        await applyingLiveGeneration { generation in
+            await control.createSSHPane(
+                target: Target(room: room), generation: generation, request: request,
+                host: host, idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 
     public func splitFocusedPane(_ orientation: SplitOrientation) async {
-        guard let pane = focusedPane,
-            let entry = topology.panes.first(where: { $0.id == pane })
-        else { return }
-        _ = await control.splitPane(
-            target: entry.target, generation: topology.generation,
-            destination: entry.destination, orientation: orientation,
-            idempotencyKey: nextKey())
+        topology = await control.listPanes()
+        guard let pane = focusedPane else {
+            lastActionMessage = "Split needs a focused pane; none is focused."
+            return
+        }
+        guard let entry = topology.panes.first(where: { $0.id == pane }) else {
+            lastActionMessage = "Split target \(pane.shortLabel) is no longer present."
+            return
+        }
+        await applyingLiveGeneration { generation in
+            await control.splitPane(
+                target: paneTarget(entry, pane), generation: generation,
+                destination: entry.destination, orientation: orientation,
+                idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 
     public func closeFocusedPane() async {
+        topology = await control.listPanes()
         guard let pane = focusedPane,
             let entry = topology.panes.first(where: { $0.id == pane })
-        else { return }
-        _ = await control.closePane(
-            target: paneTarget(entry, pane), generation: topology.generation,
-            idempotencyKey: nextKey())
+        else {
+            lastActionMessage = "Close needs a focused pane; none is focused."
+            return
+        }
+        await applyingLiveGeneration { generation in
+            await control.closePane(
+                target: paneTarget(entry, pane), generation: generation,
+                idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 
@@ -313,17 +378,26 @@ public final class AppModel {
             let entry = topology.panes.first(where: { $0.id == pane })
         else { return }
         let branches = path.map { $0 == 0 ? SplitBranch.first : SplitBranch.second }
-        _ = await control.resizeDivider(
-            target: paneTarget(entry, pane), generation: topology.generation, pane: pane,
-            path: SplitPath(branches), ratio: ratio, idempotencyKey: nextKey())
+        await applyingLiveGeneration { generation in
+            await control.resizeDivider(
+                target: paneTarget(entry, pane), generation: generation, pane: pane,
+                path: SplitPath(branches), ratio: ratio, idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 
     public func focus(_ pane: PaneID) async {
+        // Making a pane first responder calls back into here. Re-issuing focus
+        // for the pane that already has it would advance the topology
+        // generation on every layout pass, which both burns work and makes
+        // every concurrent mutation fail its generation check.
+        guard focusedPane != pane else { return }
         guard let entry = topology.panes.first(where: { $0.id == pane }) else { return }
-        _ = await control.focusPane(
-            target: paneTarget(entry, pane), generation: topology.generation,
-            idempotencyKey: nextKey())
+        await applyingLiveGeneration { generation in
+            await control.focusPane(
+                target: paneTarget(entry, pane), generation: generation,
+                idempotencyKey: nextKey())
+        }
         await refreshTopology()
     }
 }

@@ -64,9 +64,7 @@ public enum WindowCapture {
         return try await renderer.render(
             snapshot: snapshot,
             palette: model.palette,
-            theme: model.palette.appearance == .dark
-                ? AllwardRenderer.TerminalTheme.builtInDark
-                : AllwardRenderer.TerminalTheme.builtInLight,
+            theme: model.terminalTheme,
             focused: true)
     }
 }
