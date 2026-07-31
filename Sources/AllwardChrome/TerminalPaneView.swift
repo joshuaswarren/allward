@@ -254,6 +254,14 @@ public final class TerminalPaneView: NSView {
         delegate?.pane(self, send: InputEncoder.encodePaste(text, bracketed: modes.bracketedPaste))
     }
 
+    /// Sends a control byte, the way the keyboard would. Clearing the screen
+    /// belongs to the shell, so it receives the key rather than the emulator
+    /// wiping a grid the shell still believes is full.
+    public func sendControl(_ character: Character) {
+        guard let ascii = character.asciiValue else { return }
+        delegate?.pane(self, send: [ascii & 0x1f])
+    }
+
     // MARK: Mouse
 
     private func gridPosition(for event: NSEvent) -> (row: Int, column: Int) {

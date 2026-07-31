@@ -49,17 +49,23 @@ CODESIGN_IDENTITY="Apple Development: You (TEAMID)" bash scripts/make-app.sh
 | New tab | `⌘T` |
 | New pane in this tab | `⌥⌘T` |
 | New window | `⌘N` |
-| Close pane / tab | `⌘W` / `⇧⌘W` |
+| Close pane / tab / window | `⌘W` / `⌥⌘W` / `⇧⌘W` |
 | Split right / down | `⌘D` / `⇧⌘D` |
 | Move focus between panes | `⌥⌘←` `⌥⌘→` `⌥⌘↑` `⌥⌘↓` |
 | Connect to a configured SSH host | `⇧⌘O` |
 | Session board | `⇧⌘B` |
 | Attention router | `⇧⌘R` |
 | Re-entry digest | `⇧⌘E` |
-| Command palette | `⌘K` |
+| Clear screen | `⌘K` |
+| Command palette | `⇧⌘P` |
 | Switch Room | `⇧⌘M` |
 | Teleport to the routed destination | `⇧⌘T` |
 | Cycle tabs | `⌃⇥` / `⌃⇧⇥` |
+| Select tab 1-8, last | `⌘1`…`⌘8`, `⌘9` |
+| Copy / paste / select all | `⌘C` / `⌘V` / `⌘A` |
+| Bigger / smaller / actual text | `⌘+` / `⌘-` / `⌘0` |
+| Scroll top / bottom / page | `⌘↖` / `⌘↘` / `⌘⇞` `⌘⇟` |
+| Previous / next shell prompt | `⇧⌘↑` / `⇧⌘↓` |
 | Settings | `⌘,` |
 | Diagnostics | `⇧⌘/` |
 

@@ -121,8 +121,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window?.contentView?.layer?.backgroundColor =
             model.terminalTheme.defaultBackground.cgColor
         roomSeam.layer?.backgroundColor = model.palette[.seam].cgColor
-        window?.appearance = NSAppearance(
-            named: model.palette.appearance == .dark ? .darkAqua : .aqua)
+        // The titlebar is transparent over the grid, so the system draws its
+        // title text straight onto the session background. Taking the window's
+        // appearance from the chrome palette meant a light-mode Mac painted
+        // black text on a black terminal. It follows the grid instead.
+        let onDarkGrid = model.terminalTheme.defaultBackground.relativeLuminance < 0.35
+        window?.appearance = NSAppearance(named: onDarkGrid ? .darkAqua : .aqua)
         window?.contentView?.needsLayout = true
     }
 
@@ -216,6 +220,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         let panes = splitHost.subviews.compactMap { $0 as? PaneContainerView }
             .map { "\($0.paneID.shortLabel)=\(Int($0.frame.width))x\(Int($0.frame.height))" }
         let card = overlayHost.isHidden ? "none" : cardReport()
+        let chrome = window.map {
+            "appearance=\($0.effectiveAppearance.name.rawValue)"
+                + " title=\"\($0.title)\""
+                + " gridLuma=\(String(format: "%.2f", model.terminalTheme.defaultBackground.relativeLuminance))"
+        } ?? "chrome=none"
         let group = window?.tabGroup.map {
             "tabGroup=\($0.windows.count) barVisible=\($0.isTabBarVisible)"
                 + " titles=[\($0.windows.map(\.title).joined(separator: "|"))]"
@@ -229,7 +238,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         } ?? "no window"
         return "splitHost=\(Int(splitHost.frame.width))x\(Int(splitHost.frame.height)) "
             + "containers=[\(panes.joined(separator: ", "))] card=\(card) "
-            + layoutRect + " " + group
+            + layoutRect + " " + chrome + " " + group
     }
 
     /// How much of the window a summoned surface actually covers. A panel that

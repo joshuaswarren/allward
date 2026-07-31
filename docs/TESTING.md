@@ -50,7 +50,7 @@ neighbouring cell. Resize the window while output floods.
 
 Panes and tabs. `⌘D` splits right and `⇧⌘D` splits down. `⌘W` closes a
 pane and `⇧⌘W` closes a tab. `⌘T` opens a tab and `⌥⌘T` adds a pane to the
-one you are in. `⌥⌘←` and `⌥⌘→` move focus, and `⌃⇥` cycles tabs. Each
+one you are in. `⌥⌘←` and `⌥⌘→` move focus. `⌃⇥` cycles tabs and `⌘1` through `⌘9` jump straight to one. Each
 pane keeps its own shell, scrollback, and title.
 
 Rooms. `⇧⌘M` switches. A Room owns its theme, its hosts, and its sessions.
@@ -60,7 +60,7 @@ Room, never the system appearance.
 SSH. Add a host to the config and open it with `⇧⌘O`. The connection is direct. No
 multiplexer is installed on the far end, and nothing is required there.
 
-The Board. `⇧⌘B`. With no agents connected it says so plainly. Point an
+The Board. `⇧⌘B`. The command palette is `⇧⌘P`; `⌘K` clears the screen. With no agents connected it says so plainly. Point an
 agent at the socket and it fills with that agent's live state and open
 tasks. Any permission request waiting on you shows up there too.
 

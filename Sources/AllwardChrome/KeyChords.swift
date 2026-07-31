@@ -39,6 +39,10 @@ public struct KeyChord: Hashable, Sendable {
         case "\u{F702}": return "←"
         case "\u{F703}": return "→"
         case "\u{0009}": return "⇥"
+        case "\u{F729}": return "↖"
+        case "\u{F72B}": return "↘"
+        case "\u{F72C}": return "⇞"
+        case "\u{F72D}": return "⇟"
         default: return key.uppercased()
         }
     }
@@ -51,7 +55,7 @@ public enum Shortcut {
     public static let newWindow = KeyChord("n", [.command])
     public static let connectSSH = KeyChord("o", [.command, .shift])
     public static let closePane = KeyChord("w", [.command])
-    public static let closeTab = KeyChord("w", [.command, .shift])
+    public static let closeTab = KeyChord("w", [.command, .option])
     public static let splitRight = KeyChord("d", [.command])
     public static let splitDown = KeyChord("d", [.command, .shift])
     public static let focusLeft = KeyChord("\u{F702}", [.command, .option])
@@ -63,10 +67,32 @@ public enum Shortcut {
     public static let board = KeyChord("b", [.command, .shift])
     public static let router = KeyChord("r", [.command, .shift])
     public static let digest = KeyChord("e", [.command, .shift])
-    public static let palette = KeyChord("k", [.command])
+    /// Command-K clears the screen in Terminal.app, iTerm and Ghostty, so the
+    /// palette takes the editor convention instead of stealing it.
+    public static let palette = KeyChord("p", [.command, .shift])
     public static let rooms = KeyChord("m", [.command, .shift])
     public static let teleport = KeyChord("t", [.command, .shift])
     public static let settings = KeyChord(",", [.command])
+    public static let closeWindow = KeyChord("w", [.command, .shift])
+    public static let copy = KeyChord("c", [.command])
+    public static let paste = KeyChord("v", [.command])
+    public static let selectAll = KeyChord("a", [.command])
+    public static let clearScreen = KeyChord("k", [.command])
+    public static let increaseFontSize = KeyChord("+", [.command])
+    public static let decreaseFontSize = KeyChord("-", [.command])
+    public static let resetFontSize = KeyChord("0", [.command])
+    public static let scrollPageUp = KeyChord("\u{F72C}", [.command])
+    public static let scrollPageDown = KeyChord("\u{F72D}", [.command])
+    public static let scrollToTop = KeyChord("\u{F729}", [.command])
+    public static let scrollToBottom = KeyChord("\u{F72B}", [.command])
+    public static let previousPrompt = KeyChord("\u{F700}", [.command, .shift])
+    public static let nextPrompt = KeyChord("\u{F701}", [.command, .shift])
+
+    /// Command-1 through Command-8 select a tab and Command-9 the last one,
+    /// which is what every browser and every other terminal does.
+    public static func selectTab(_ index: Int) -> KeyChord {
+        KeyChord("\(index)", [.command])
+    }
 
     /// Pane focus is four bindings a user thinks of as one gesture.
     public static var focusPane: String { "\(focusLeft.display.dropLast())arrows" }
@@ -98,5 +124,19 @@ public enum Shortcut {
         ("surface.rooms", rooms),
         ("surface.teleport", teleport),
         ("surface.settings", settings),
-    ]
+        ("window.close", closeWindow),
+        ("edit.copy", copy),
+        ("edit.paste", paste),
+        ("edit.select-all", selectAll),
+        ("terminal.clear", clearScreen),
+        ("font.increase", increaseFontSize),
+        ("font.decrease", decreaseFontSize),
+        ("font.reset", resetFontSize),
+        ("scroll.page-up", scrollPageUp),
+        ("scroll.page-down", scrollPageDown),
+        ("scroll.top", scrollToTop),
+        ("scroll.bottom", scrollToBottom),
+        ("prompt.previous", previousPrompt),
+        ("prompt.next", nextPrompt),
+    ] + (1 ... 9).map { ("tab.select-\($0)", selectTab($0)) }
 }

@@ -172,6 +172,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
             print("tabs: \(model.tabOrder().count) layout: \(String(describing: model.currentLayout()))")
             print(window.layoutReport())
+            print("menu: \(Self.menuReport())")
             print("grids: \(model.gridReport())")
             print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
             if let message = model.lastActionMessage { print("note: \(message)") }
@@ -199,6 +200,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         defer {
             print(
                 "step \(step): panes=\(model.topology.panes.count) "
+                    + "focusedTab=\(model.focusedTab?.shortLabel ?? "none") "
                     + "tabs=\(model.tabOrder().count) "
                     + "note=\(model.lastActionMessage ?? "none")")
         }
@@ -206,6 +208,8 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "split-right": await model.splitFocusedPane(.horizontal)
         case "split-down": await model.splitFocusedPane(.vertical)
         case "new-tab": await model.newTab()
+        case let step where step.hasPrefix("tab-"):
+            await model.selectTab(at: Int(step.dropFirst(4)) ?? 1)
         case "board":
             window.presentBoard()
             await waitForSurface(window)
@@ -270,11 +274,38 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(.separator())
         add(fileMenu, "Close pane", #selector(closePane(_:)), Shortcut.closePane)
         add(fileMenu, "Close tab", #selector(closeTab(_:)), Shortcut.closeTab)
+        add(
+            fileMenu, "Close window", #selector(NSWindow.performClose(_:)),
+            Shortcut.closeWindow)
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
+        // An Edit menu is not decoration: without it Command-C, Command-V and
+        // Command-A do nothing, which is the first thing anyone tries.
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        add(editMenu, "Copy", #selector(copySelection(_:)), Shortcut.copy)
+        add(editMenu, "Paste", #selector(pasteText(_:)), Shortcut.paste)
+        add(editMenu, "Select all", #selector(selectAllText(_:)), Shortcut.selectAll)
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
+        add(viewMenu, "Clear screen", #selector(clearScreen(_:)), Shortcut.clearScreen)
+        viewMenu.addItem(.separator())
+        add(viewMenu, "Bigger text", #selector(increaseFontSize(_:)), Shortcut.increaseFontSize)
+        add(viewMenu, "Smaller text", #selector(decreaseFontSize(_:)), Shortcut.decreaseFontSize)
+        add(viewMenu, "Actual size", #selector(resetFontSize(_:)), Shortcut.resetFontSize)
+        viewMenu.addItem(.separator())
+        add(viewMenu, "Scroll to top", #selector(scrollToTop(_:)), Shortcut.scrollToTop)
+        add(viewMenu, "Scroll to bottom", #selector(scrollToBottom(_:)), Shortcut.scrollToBottom)
+        add(viewMenu, "Page up", #selector(scrollPageUp(_:)), Shortcut.scrollPageUp)
+        add(viewMenu, "Page down", #selector(scrollPageDown(_:)), Shortcut.scrollPageDown)
+        viewMenu.addItem(.separator())
+        add(viewMenu, "Previous prompt", #selector(previousPrompt(_:)), Shortcut.previousPrompt)
+        add(viewMenu, "Next prompt", #selector(nextPrompt(_:)), Shortcut.nextPrompt)
+        viewMenu.addItem(.separator())
         add(viewMenu, "Split right", #selector(splitRight(_:)), Shortcut.splitRight)
         add(viewMenu, "Split down", #selector(splitDown(_:)), Shortcut.splitDown)
         viewMenu.addItem(.separator())
@@ -285,6 +316,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(.separator())
         add(viewMenu, "Next tab", #selector(nextTab(_:)), Shortcut.nextTab)
         add(viewMenu, "Previous tab", #selector(previousTab(_:)), Shortcut.previousTab)
+        for index in 1 ... 9 {
+            let title = index == 9 ? "Last tab" : "Tab \(index)"
+            add(viewMenu, title, #selector(selectNumberedTab(_:)), Shortcut.selectTab(index))
+            viewMenu.items.last?.tag = index
+        }
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 
@@ -300,7 +336,32 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         workItem.submenu = workMenu
         main.addItem(workItem)
 
+        // AppKit fills a Window menu with Minimize, Zoom, the tab commands and
+        // Merge All Windows. Without one, native tabbing loses half of what it
+        // is for, which is what happened when this menu was missing.
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
+
         NSApp.mainMenu = main
+    }
+
+    /// Every installed key equivalent, so a claim that a shortcut exists can be
+    /// checked against the menu rather than against the registry that feeds it.
+    static func menuReport() -> String {
+        var lines: [String] = []
+        for top in NSApp.mainMenu?.items ?? [] {
+            guard let submenu = top.submenu else { continue }
+            let keys = submenu.items.compactMap { item -> String? in
+                guard !item.keyEquivalent.isEmpty else { return nil }
+                let chord = KeyChord(item.keyEquivalent, item.keyEquivalentModifierMask)
+                return "\(chord.display)=\(item.title)"
+            }
+            if !keys.isEmpty { lines.append("[\(submenu.title)] " + keys.joined(separator: " ")) }
+        }
+        return lines.joined(separator: " | ")
     }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector, _ chord: KeyChord) {
@@ -344,4 +405,42 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     @objc public func teleport(_ sender: Any?) { Task { await model.teleportToRoutedDestination() } }
     @objc public func showSettings(_ sender: Any?) { model.keyWindowController?.presentSettings() }
     @objc public func showDiagnostics(_ sender: Any?) { model.keyWindowController?.presentDiagnostics() }
+
+    // MARK: Conventional terminal commands
+
+    @objc public func copySelection(_ sender: Any?) { Task { await model.copySelection() } }
+    @objc public func pasteText(_ sender: Any?) { model.pasteFromClipboard() }
+    @objc public func selectAllText(_ sender: Any?) {
+        Task { await model.selectAllInFocusedPane() }
+    }
+    @objc public func clearScreen(_ sender: Any?) { model.clearFocusedScreen() }
+    @objc public func increaseFontSize(_ sender: Any?) {
+        Task { await model.adjustFontSize(by: 1) }
+    }
+    @objc public func decreaseFontSize(_ sender: Any?) {
+        Task { await model.adjustFontSize(by: -1) }
+    }
+    @objc public func resetFontSize(_ sender: Any?) { Task { await model.resetFontSize() } }
+    @objc public func scrollToTop(_ sender: Any?) {
+        Task { await model.scrollFocusedPane(toTop: true) }
+    }
+    @objc public func scrollToBottom(_ sender: Any?) {
+        Task { await model.scrollFocusedPane(toTop: false) }
+    }
+    @objc public func scrollPageUp(_ sender: Any?) {
+        Task { await model.scrollFocusedPane(byRows: 20) }
+    }
+    @objc public func scrollPageDown(_ sender: Any?) {
+        Task { await model.scrollFocusedPane(byRows: -20) }
+    }
+    @objc public func previousPrompt(_ sender: Any?) {
+        Task { await model.jumpToPrompt(previous: true) }
+    }
+    @objc public func nextPrompt(_ sender: Any?) {
+        Task { await model.jumpToPrompt(previous: false) }
+    }
+    @objc public func selectNumberedTab(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem else { return }
+        Task { [tag = item.tag] in await model.selectTab(at: tag) }
+    }
 }
