@@ -14,6 +14,11 @@ import PackageDescription
     let darwinTargets: [Target] = [
         .target(name: "CAllwardPTY", path: "Sources/CAllwardPTY", publicHeadersPath: "include"),
         .target(
+            name: "AllwardConfig",
+            dependencies: ["AllwardCore", "AllwardRooms", "AllwardDesign"]
+        ),
+        .testTarget(name: "AllwardConfigTests", dependencies: ["AllwardConfig"]),
+        .target(
             name: "AllwardLocalPTY",
             dependencies: ["AllwardCore", "AllwardRemote", "CAllwardPTY"]
         ),
@@ -91,7 +96,6 @@ let package = Package(
             dependencies: ["AllwardCore", "AllwardProtocol", "AllwardRooms", "AllwardMultiplexer"]
         ),
         .target(name: "AllwardMultiplexer", dependencies: ["AllwardCore"]),
-        .target(name: "AllwardConfig", dependencies: ["AllwardCore", "AllwardRooms", "AllwardDesign"]),
         .target(name: "AllwardRemote", dependencies: ["AllwardCore"]),
 
         // MARK: Tests
@@ -104,6 +108,5 @@ let package = Package(
             dependencies: ["AllwardSurfaces", "AllwardRooms", "AllwardProtocol"]
         ),
         .testTarget(name: "AllwardDesignTests", dependencies: ["AllwardDesign"]),
-        .testTarget(name: "AllwardConfigTests", dependencies: ["AllwardConfig"]),
     ] + darwinTargets
 )

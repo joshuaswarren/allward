@@ -41,9 +41,9 @@ public struct GlyphRequest: Hashable, Sendable {
     public let cellSpan: Int
     public let row: Int
 
-    public init(key: GlyphAtlasKey, cellSpan: Int, row: Int) {
+    public init(key: GlyphAtlasKey, row: Int) {
         self.key = key
-        self.cellSpan = max(1, min(cellSpan, 2))
+        cellSpan = key.cellSpan
         self.row = row
     }
 }

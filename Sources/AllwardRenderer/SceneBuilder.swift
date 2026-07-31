@@ -254,7 +254,7 @@ public struct SceneBuilder: Sendable {
             rect: rect,
             clipRect: rect,
             color: foreground.floatComponents,
-            request: GlyphRequest(key: key, cellSpan: span, row: rowIndex)
+            request: GlyphRequest(key: key, row: rowIndex)
         )
         if presentation == .colorEmoji {
             row.colorGlyphs.append(glyph)
