@@ -103,8 +103,13 @@ func demonstrationSnapshot(columns: Int, rows: Int) -> TerminalSnapshot {
         script += "\(esc)[10\(index)m  \(esc)[0m"
     }
     script += "\r\n"
-    script += "Powerline/Nerd \u{E0B0}\u{E0B2}\u{F09B}\u{F015}\u{F02B}  "
-        + "Box \u{2500}\u{2502}\u{250C}\u{2510}\u{2514}\u{2518}\r\n"
+    script += "Powerline/Nerd \u{E0B0}\u{E0B2}\u{F09B}\u{F015}\u{F02B}\r\n"
+    // A drawn box is the decisive tiling test: the corners and edges only close
+    // into a rectangle if every geometry glyph reaches its own cell edges.
+    script += "\u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}  "
+        + "\u{2588}\u{2593}\u{2592}\u{2591} blocks\r\n"
+    script += "\u{2502}box  \u{2502}\r\n"
+    script += "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}\r\n"
     script += "\(esc)]133;A\u{7}"
     script += "\(esc)[38;2;95;179;201m~/src/allward\(esc)[0m \(esc)[1;32m❯\(esc)[0m "
     script += "\(esc)]133;B\u{7}"

@@ -132,25 +132,19 @@ private actor GlyphRasterizationQueue {
             var fontAscent: CGFloat = 0
             var fontDescent: CGFloat = 0
             let lineWidth = CTLineGetTypographicBounds(line, &fontAscent, &fontDescent, nil)
-            if shouldFit(
-                grapheme: grapheme,
-                isFallback: isFallback,
-                lineWidth: lineWidth,
-                width: width
-            ) {
-                drawFitted(
-                    line,
-                    fontAscent: fontAscent,
-                    fontDescent: fontDescent,
-                    lineWidth: lineWidth,
-                    width: width,
-                    height: height,
-                    in: context
-                )
-            } else {
-                let x = key.presentation == .colorEmoji ? max(0, (Double(width) - lineWidth) / 2) : 0
+            let fit = fitStrategy(
+                grapheme: grapheme, isFallback: isFallback, lineWidth: lineWidth, width: width)
+            switch fit {
+            case .none:
+                let x = key.presentation == .colorEmoji
+                    ? max(0, (Double(width) - lineWidth) / 2) : 0
                 context.textPosition = CGPoint(x: x, y: CGFloat(height) - metrics.baseline)
                 CTLineDraw(line, context)
+            case .fillCell:
+                drawFillingCell(line, width: width, height: height, in: context)
+            case .containUniformly:
+                drawContained(
+                    line, fontAscent: fontAscent, width: width, height: height, in: context)
             }
         }
 
@@ -164,40 +158,68 @@ private actor GlyphRasterizationQueue {
         )
     }
 
-    private func shouldFit(
+    /// How a glyph is mapped into its cell box.
+    private enum GlyphFit {
+        /// Draw on the shared baseline at natural size.
+        case none
+        /// Stretch the ink box to exactly fill the cell. Box-drawing and
+        /// powerline separators must tile with their neighbours, so their ink
+        /// has to reach every cell edge regardless of the font's own metrics.
+        case fillCell
+        /// Scale down uniformly and centre. Used for a fallback glyph that is
+        /// simply too wide; distorting an icon's aspect ratio would be worse.
+        case containUniformly
+    }
+
+    private func fitStrategy(
         grapheme: String,
         isFallback: Bool,
         lineWidth: Double,
         width: Int
-    ) -> Bool {
-        let targetWidth = Double(width)
-        guard abs(lineWidth - targetWidth) > 0.5 else { return false }
-        if isFallback, lineWidth > targetWidth { return true }
-        return grapheme.unicodeScalars.allSatisfy {
-            (0x2500 ... 0x259F).contains($0.value) || (0xE000 ... 0xF8FF).contains($0.value)
+    ) -> GlyphFit {
+        if isTilingGeometry(grapheme) { return .fillCell }
+        guard lineWidth > Double(width) + 0.5 else { return .none }
+        return .containUniformly
+    }
+
+    /// Box drawing, block elements, and powerline separators. These are the
+    /// only glyphs whose correctness depends on touching the cell edge.
+    private func isTilingGeometry(_ grapheme: String) -> Bool {
+        let scalars = grapheme.unicodeScalars
+        guard !scalars.isEmpty else { return false }
+        return scalars.allSatisfy {
+            (0x2500...0x259F).contains($0.value) || (0xE0B0...0xE0BF).contains($0.value)
         }
     }
 
-    private func drawFitted(
-        _ line: CTLine,
-        fontAscent: CGFloat,
-        fontDescent: CGFloat,
-        lineWidth: Double,
-        width: Int,
-        height: Int,
-        in context: CGContext
+    private func drawFillingCell(
+        _ line: CTLine, width: Int, height: Int, in context: CGContext
     ) {
-        let baseline = CGFloat(height) - metrics.baseline
-        let ascentScale = metrics.baseline / max(fontAscent, 1)
-        let descentScale = fontDescent > 0 ? baseline / fontDescent : ascentScale
-
+        let ink = CTLineGetImageBounds(line, context)
+        guard ink.width > 0.01, ink.height > 0.01 else {
+            context.textPosition = CGPoint(x: 0, y: CGFloat(height) - metrics.baseline)
+            CTLineDraw(line, context)
+            return
+        }
         context.saveGState()
-        context.translateBy(x: 0, y: baseline)
-        context.scaleBy(
-            x: CGFloat(Double(width) / lineWidth),
-            y: min(ascentScale, descentScale)
-        )
-        context.textPosition = .zero
+        context.scaleBy(x: CGFloat(width) / ink.width, y: CGFloat(height) / ink.height)
+        context.textPosition = CGPoint(x: -ink.minX, y: -ink.minY)
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func drawContained(
+        _ line: CTLine, fontAscent: CGFloat, width: Int, height: Int, in context: CGContext
+    ) {
+        let ink = CTLineGetImageBounds(line, context)
+        guard ink.width > 0.01, ink.height > 0.01 else { return }
+        let scale = min(CGFloat(width) / ink.width, CGFloat(height) / ink.height, 1)
+        context.saveGState()
+        context.translateBy(
+            x: (CGFloat(width) - ink.width * scale) / 2,
+            y: (CGFloat(height) - ink.height * scale) / 2)
+        context.scaleBy(x: scale, y: scale)
+        context.textPosition = CGPoint(x: -ink.minX, y: -ink.minY)
         CTLineDraw(line, context)
         context.restoreGState()
     }
