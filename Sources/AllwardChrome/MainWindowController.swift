@@ -139,6 +139,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         tabHost.isHidden = false
+        // NSHostingView paints its own backdrop, which on a light-appearance
+        // Mac is a bright band regardless of what the SwiftUI view fills. The
+        // host layer has to carry the session background too.
+        tabHost.wantsLayer = true
+        tabHost.layer?.backgroundColor = model.terminalTheme.defaultBackground.cgColor
         tabHost.rootView = AnyView(
             TabStripView(
                 tabs: items,
