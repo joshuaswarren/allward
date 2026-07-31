@@ -377,7 +377,15 @@ extension AppModel {
                 lastActionMessage = "The selected terminal theme is not available."
                 return false
             }
+            // A Room owns its theme, so writing only the global default meant
+            // this control could never change anything you were looking at.
+            // It sets the Room you are in, and the default for the next one.
             configuration.terminal.theme = themeID
+            if let room = activeRoom?.id,
+                let index = configuration.rooms.firstIndex(where: { $0.id == room })
+            {
+                configuration.rooms[index].terminalThemeName = themeID
+            }
             return true
         case .importTheme:
             lastActionMessage = "Theme import needs a file selected from the import control."

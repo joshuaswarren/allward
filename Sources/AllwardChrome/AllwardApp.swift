@@ -201,6 +201,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print(
                 "step \(step): panes=\(model.topology.panes.count) "
                     + "focusedTab=\(model.focusedTab?.shortLabel ?? "none") "
+                    + "firstResponder=\(window.window?.firstResponder.map { "\(type(of: $0))" } ?? "none") "
+                    + "surface=\(window.presentedSurface.map { "\($0)" } ?? "none") "
+                    + "gridBg=\(String(format: "%.2f", model.terminalTheme.defaultBackground.relativeLuminance)) "
                     + "tabs=\(model.tabOrder().count) "
                     + "note=\(model.lastActionMessage ?? "none")")
         }
@@ -208,6 +211,10 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "split-right": await model.splitFocusedPane(.horizontal)
         case "split-down": await model.splitFocusedPane(.vertical)
         case "new-tab": await model.newTab()
+        case "escape":
+            window.cancelOperation(nil)
+        case let step where step.hasPrefix("theme-"):
+            await model.applySettingsUpdate(.selectTheme(themeID: String(step.dropFirst(6))))
         case let step where step.hasPrefix("tab-"):
             await model.selectTab(at: Int(step.dropFirst(4)) ?? 1)
         case "board":

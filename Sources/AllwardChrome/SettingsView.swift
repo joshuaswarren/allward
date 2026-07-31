@@ -77,6 +77,8 @@ public struct SettingsView: View {
         }
         .accessibilityLabel("Settings")
         .accessibilityValue(state.presentation.accessibilityValue(state.subject))
+        .onKeyPress(.leftArrow) { moveSection(by: -1) }
+        .onKeyPress(.rightArrow) { moveSection(by: 1) }
         .onKeyPress(.escape) {
             dismissAndRestoreInvocation()
             return .handled
@@ -665,6 +667,16 @@ public struct SettingsView: View {
 
     private func numberText(_ value: Double) -> String {
         value.rounded() == value ? String(Int(value)) : String(value)
+    }
+
+    /// Left and right move between sections, so Settings is reachable without
+    /// a pointer even though its section control is a segmented picker.
+    private func moveSection(by step: Int) -> KeyPress.Result {
+        let tabs = SettingsTab.allCases
+        guard let index = tabs.firstIndex(of: selectedTab) else { return .ignored }
+        let next = (index + step + tabs.count) % tabs.count
+        selectedTab = tabs[next]
+        return .handled
     }
 
     private func tabTitle(_ tab: SettingsTab) -> String {

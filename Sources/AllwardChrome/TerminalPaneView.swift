@@ -43,6 +43,14 @@ public final class TerminalPaneView: NSView {
     private var scheduler: FrameScheduler?
     private let metalLayer = CAMetalLayer()
     private var captureLayer: CALayer?
+
+    /// The ring that marks the focused pane.
+    ///
+    /// It used to be four flat rectangles inside the Metal scene, which made it
+    /// square by construction and flush against the first character. A layer
+    /// rounds properly, sits outside the grid so the text has room to breathe,
+    /// and keeps the render path to glyphs.
+    private let focusRing = CALayer()
     private var fontFamily: String?
     private var fontSize: Double
     private var trackingAreaRef: NSTrackingArea?
@@ -51,7 +59,7 @@ public final class TerminalPaneView: NSView {
     /// Breathing room between the window edge and the first cell. Every mature
     /// terminal has it; without it the first column collides with the frame and
     /// the window reads as broken rather than dense.
-    public var gridInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10) {
+    public var gridInsets = NSEdgeInsets(top: 13, left: 17, bottom: 13, right: 17) {
         didSet { needsLayout = true }
     }
 
@@ -69,6 +77,11 @@ public final class TerminalPaneView: NSView {
         metalLayer.contentsGravity = .topLeft
         metalLayer.needsDisplayOnBoundsChange = true
         layer?.addSublayer(metalLayer)
+        focusRing.borderWidth = 1
+        focusRing.cornerRadius = 8
+        focusRing.cornerCurve = .continuous
+        focusRing.isHidden = true
+        layer?.addSublayer(focusRing)
         allowedTouchTypes = []
     }
 
@@ -131,6 +144,9 @@ public final class TerminalPaneView: NSView {
         layer?.backgroundColor = theme.defaultBackground.cgColor
         CATransaction.commit()
         renderer?.setDrawableSize(metalLayer.drawableSize, scale: scale)
+        // The ring hugs the pane, not the grid, so the inset above becomes
+        // clear space between the ring and the first character.
+        focusRing.frame = bounds.insetBy(dx: 4, dy: 4)
         publishGeometry()
     }
 
@@ -159,7 +175,7 @@ public final class TerminalPaneView: NSView {
 
     /// The insets a pane puts around its grid, so a caller sizing a shell
     /// before the view exists reaches the same answer this view will.
-    public static let gridInsetSize = NSSize(width: 20, height: 12)
+    public static let gridInsetSize = NSSize(width: 34, height: 26)
 
     private func publishGeometry() {
         guard bounds.width > 0, bounds.height > 0 else { return }
@@ -198,6 +214,8 @@ public final class TerminalPaneView: NSView {
         self.snapshot = snapshot
         isPaneFocused = focused
         metalLayer.opacity = focused ? 1 : Self.unfocusedOpacity
+        focusRing.isHidden = focused == false
+        focusRing.borderColor = palette[.strokeKeyboardFocus].withAlpha(0.72).cgColor
         renderer?.update(
             snapshot: snapshot, palette: palette, theme: theme, focused: focused)
         setAccessibilityNeedsRefresh()

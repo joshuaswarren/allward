@@ -130,6 +130,18 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window?.contentView?.needsLayout = true
     }
 
+    /// A new window must be typable immediately. Without this the first
+    /// responder stays on a view that ignores keys, so the first keystroke
+    /// beeps and vanishes until the grid is clicked.
+    public func focusGrid() {
+        window?.contentView?.layoutSubtreeIfNeeded()
+        guard let pane = model.layout(for: tab)?.leaves.first,
+            let view = model.paneView(for: pane), view.window === window
+        else { return }
+        window?.initialFirstResponder = view
+        window?.makeFirstResponder(view)
+    }
+
     public func topologyDidChange() {
         splitHost.setContainers(model.containers)
         splitHost.setLayout(model.layout(for: tab))
@@ -143,6 +155,13 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             window?.makeFirstResponder(view)
         }
         window?.contentView?.needsLayout = true
+        // Layout may have only just attached the pane, so claim focus once the
+        // hierarchy has settled rather than assuming it was ready above.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, overlay == nil else { return }
+            if window?.firstResponder is TerminalPaneView { return }
+            focusGrid()
+        }
     }
 
     // MARK: Window lifecycle
@@ -156,8 +175,20 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     /// The key window is the focused tab, so focus follows the tab bar.
     public func windowDidBecomeKey(_ notification: Notification) {
+        if overlay == nil { focusGrid() }
         guard model.focusedTab != tab else { return }
         Task { [tab] in await model.focusTab(tab) }
+    }
+
+    /// Escape dismisses whatever is summoned, from anywhere.
+    ///
+    /// Each surface also handles Escape in SwiftUI, but that only fires when
+    /// SwiftUI focus happens to be inside it, which is why Settings could be
+    /// opened and not closed. This is the responder-chain backstop, so the
+    /// keyboard is never a dead end.
+    public override func cancelOperation(_ sender: Any?) {
+        guard overlay != nil else { return }
+        dismissSummonedSurface()
     }
 
     /// The router strip lives outside the grid frame and never takes focus.
@@ -197,10 +228,15 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         overlay = nil
         overlayHost.isHidden = true
         overlayHost.rootView = AnyView(EmptyView())
-        if let pane = model.focusedPane, let view = model.paneView(for: pane) {
+        // Dismissing must hand the keyboard back to the grid. Falling through
+        // to the split host leaves the window itself first responder, so the
+        // next keystroke beeps exactly as it did before a pane was focused.
+        if let pane = model.focusedPane, let view = model.paneView(for: pane),
+            view.window === window
+        {
             window?.makeFirstResponder(view)
         } else {
-            window?.makeFirstResponder(splitHost)
+            focusGrid()
         }
     }
 

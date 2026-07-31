@@ -102,14 +102,6 @@ public struct SceneBuilder: Sendable {
                 theme: theme,
                 focused: focused
             )
-            appendFocusIndicator(
-                to: &row,
-                rowIndex: rowIndex,
-                rowCount: snapshot.geometry.rows,
-                width: width,
-                palette: palette,
-                focused: focused
-            )
             rows.append(row)
         }
 
@@ -380,39 +372,6 @@ public struct SceneBuilder: Sendable {
         row.cursorAndFocus.append(
             SceneRectangle(
                 x: x + width - pixel, y: y, width: pixel, height: height, color: color))
-    }
-
-    private func appendFocusIndicator(
-        to row: inout SceneRow,
-        rowIndex: Int,
-        rowCount: Int,
-        width: Float,
-        palette: DesignPalette,
-        focused: Bool
-    ) {
-        guard focused else { return }
-        let y = Float(rowIndex) * Float(metrics.cellHeight)
-        let color = palette[.strokeKeyboardFocus].withAlpha(0.72)
-        row.cursorAndFocus.append(
-            SceneRectangle(x: 0, y: y, width: pixel, height: Float(metrics.cellHeight), color: color)
-        )
-        row.cursorAndFocus.append(
-            SceneRectangle(x: width - pixel, y: y, width: pixel, height: Float(metrics.cellHeight), color: color)
-        )
-        if rowIndex == 0 {
-            row.cursorAndFocus.append(SceneRectangle(x: 0, y: 0, width: width, height: pixel, color: color))
-        }
-        if rowIndex == rowCount - 1 {
-            row.cursorAndFocus.append(
-                SceneRectangle(
-                    x: 0,
-                    y: y + Float(metrics.cellHeight) - pixel,
-                    width: width,
-                    height: pixel,
-                    color: color
-                )
-            )
-        }
     }
 
     private func normalizedRow(snapshot: TerminalSnapshot, index: Int) -> [TerminalCell] {
