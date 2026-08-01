@@ -57,6 +57,13 @@ extension AppModel {
         set { surfaceState(for: self).digest = newValue }
     }
 
+    /// The settings section to open. Stored on the model so anything - a deep
+    /// link, the palette, a test - can decide which one you land on.
+    public var selectedSettingsTab: SettingsTab {
+        get { surfaceState(for: self).selectedSettingsTab }
+        set { surfaceState(for: self).selectedSettingsTab = newValue }
+    }
+
     public var lastActionMessage: String? {
         get { surfaceState(for: self).lastActionMessage }
         set { surfaceState(for: self).lastActionMessage = newValue }
@@ -363,6 +370,30 @@ extension AppModel {
             }
             configuration.rooms[index].baseTint = tint
             return true
+        case .addRoom:
+            // Personal and Work are a starting point, not the shape of
+            // everyone's work.
+            RoomMutation.add(
+                to: &configuration.rooms,
+                tint: DesignPalette.neutralTint(palette.appearance),
+                themeName: configuration.terminal.theme)
+            return true
+        case let .renameRoom(roomID, name):
+            guard let id = Self.parseRoomID(roomID) else { return false }
+            return RoomMutation.rename(id, to: name, in: &configuration.rooms)
+        case let .deleteRoom(roomID):
+            guard let id = Self.parseRoomID(roomID),
+                let room = configuration.rooms.first(where: { $0.id == id })
+            else { return false }
+            guard !topology.windows.contains(where: { $0.room == room.id }) else {
+                lastActionMessage = "Close \(room.name)'s windows before deleting it."
+                return false
+            }
+            guard RoomMutation.delete(id, from: &configuration.rooms) else {
+                lastActionMessage = "The last Room cannot be deleted."
+                return false
+            }
+            return true
         case let .selectRoomTheme(roomID, themeID):
             guard let id = UUID(uuidString: roomID),
                   let index = configuration.rooms.firstIndex(where: { $0.id.rawValue == id }),
@@ -413,22 +444,31 @@ extension AppModel {
             configuration.dictationKey = shortcut
             return true
         case let .setIntegration(integrationID, enabled):
-            guard integrationID == "mcp" else {
+            guard Self.applyIntegration(integrationID, enabled: enabled, to: &configuration)
+            else {
                 lastActionMessage = "That integration is controlled by its adapter."
                 return false
             }
-            configuration.mcpEnabled = enabled
             return true
-        case .reviewPrivacy:
-            lastActionMessage = "Privacy details are informational and do not change a setting."
-            return false
-        case .setRetention:
-            lastActionMessage = "This build has no configurable retention store."
-            return false
         }
     }
 
     private func applyGeneralSetting(
+        itemID: String,
+        value: GeneralSettingValue,
+        to configuration: inout Configuration
+    ) -> Bool {
+        guard AppModel.applySetting(itemID: itemID, value: value, to: &configuration)
+        else { return invalidSetting(itemID) }
+        return true
+    }
+
+    /// Maps a settings control to the configuration field it writes.
+    ///
+    /// Every control the settings surface renders as writable must land here.
+    /// `SettingsBehaviourTests` checks the two against each other, because a
+    /// control with no case is one that silently does nothing.
+    static func applySetting(
         itemID: String,
         value: GeneralSettingValue,
         to configuration: inout Configuration
@@ -438,27 +478,35 @@ extension AppModel {
             configuration.terminal.fontFamily = value
         case ("terminal.font-size", let .number(value, _, _)):
             configuration.terminal.fontSize = value
-        case ("terminal.theme", let .choice(selectedID, _)):
-            guard ThemeCatalog.theme(named: selectedID) != nil else { return invalidSetting(itemID) }
-            configuration.terminal.theme = selectedID
         case ("terminal.cursor-shape", let .choice(selectedID, _)):
-            guard let shape = CursorShape(rawValue: selectedID) else { return invalidSetting(itemID) }
+            guard let shape = CursorShape(rawValue: selectedID) else { return false }
             configuration.terminal.cursorShape = shape
         case ("terminal.cursor-blink", let .toggle(value)):
             configuration.terminal.cursorBlink = value
         case ("terminal.scrollback-capacity", let .number(value, _, _)):
             configuration.terminal.scrollbackCapacity = Int(value)
         case ("board.presentation", let .choice(selectedID, _)):
-            guard let style = BoardPresentation(rawValue: selectedID) else { return invalidSetting(itemID) }
+            guard let style = BoardPresentation(rawValue: selectedID) else { return false }
             configuration.boardPresentation = style
         case ("earcons.enabled", let .toggle(value)):
             configuration.earconsEnabled = value
-        case ("speech.dictation-key", let .text(value)):
-            configuration.dictationKey = value
         default:
-            return invalidSetting(itemID)
+            return false
         }
         return true
+    }
+
+    /// The integrations that are actually a setting rather than a readout.
+    static func applyIntegration(
+        _ id: String, enabled: Bool, to configuration: inout Configuration
+    ) -> Bool {
+        guard id == "mcp" else { return false }
+        configuration.mcpEnabled = enabled
+        return true
+    }
+
+    private static func parseRoomID(_ raw: String) -> RoomID? {
+        UUID(uuidString: raw).map(RoomID.init(rawValue:))
     }
 
     private func invalidSetting(_ itemID: String) -> Bool {

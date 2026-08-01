@@ -150,7 +150,8 @@ public enum SurfaceProjection {
         themes: [String],
         adapterHealth: AdapterHealth,
         mcpCommandLine: String,
-        shellLane: String
+        shellLane: String,
+        selectedTab: SettingsTab = .general
     ) -> SettingsViewState {
         let themeNames = unique([configuration.terminal.theme] + rooms.map(\.terminalThemeName) + themes)
         let themeChoices = themeNames.map { SettingChoice(id: $0, label: $0) }
@@ -158,8 +159,10 @@ public enum SurfaceProjection {
         return SettingsViewState(
             presentation: PresentationComposer.compose(.liveLocal),
             subject: PresentationSubject(componentName: "Settings", target: "Allward settings"),
-            selectedTab: .general,
-            general: generalSettings(configuration, themes: themeChoices, shellLane: shellLane),
+            selectedTab: selectedTab,
+            general: generalSettings(configuration, shellLane: shellLane),
+            appearance: appearanceSettings(configuration),
+            sound: soundSettings(configuration),
             rooms: rooms.map { roomSetting($0, themes: themeChoices, tintChoices: tintChoices) },
             themes: themeNames.map {
                 ThemeSetting(
@@ -579,20 +582,20 @@ public enum SurfaceProjection {
 
     private static func generalSettings(
         _ configuration: Configuration,
-        themes: [SettingChoice],
         shellLane: String
     ) -> [GeneralSetting] {
         [
             GeneralSetting(
-                id: "terminal.font-family", label: "Terminal font family", detail: nil,
-                value: .text(configuration.terminal.fontFamily), isEnabled: true),
+                id: "terminal.font-family", label: "Font", detail: nil,
+                value: .choice(
+                    selectedID: configuration.terminal.fontFamily,
+                    choices: fontChoices(selected: configuration.terminal.fontFamily)),
+                isEnabled: true),
             GeneralSetting(
                 id: "terminal.font-size", label: "Terminal font size", detail: nil,
                 value: .number(value: configuration.terminal.fontSize, range: 6...72, step: 1),
                 isEnabled: true),
-            GeneralSetting(
-                id: "terminal.theme", label: "Terminal theme", detail: nil,
-                value: .choice(selectedID: configuration.terminal.theme, choices: themes), isEnabled: true),
+
             GeneralSetting(
                 id: "terminal.cursor-shape", label: "Cursor shape", detail: nil,
                 value: .choice(
@@ -614,23 +617,36 @@ public enum SurfaceProjection {
                 ),
                 isEnabled: true),
             GeneralSetting(
-                id: "earcons.enabled", label: "Earcons", detail: nil,
-                value: .toggle(configuration.earconsEnabled), isEnabled: true),
+                id: "shell.lane", label: "Shell integration lane", detail: nil,
+                value: .text(shellLane), isEnabled: false),
+        ]
+    }
+
+    /// Board density. It decides how much the Board shows, so it lives with the
+    /// other things that decide how Allward looks.
+    private static func appearanceSettings(_ configuration: Configuration) -> [GeneralSetting] {
+        [
             GeneralSetting(
-                id: "board.presentation", label: "Board presentation", detail: nil,
+                id: "board.presentation", label: "Board presentation",
+                detail: "How much detail the session Board packs into a row.",
                 value: .choice(
                     selectedID: configuration.boardPresentation.rawValue,
                     choices: BoardPresentation.allCases.map {
                         SettingChoice(id: $0.rawValue, label: $0.rawValue.capitalized)
                     }
                 ),
-                isEnabled: true),
+                isEnabled: true)
+        ]
+    }
+
+    /// The master switch for earcons. Each Room chooses which ones it plays, so
+    /// the switch that silences all of them belongs beside the Rooms.
+    private static func soundSettings(_ configuration: Configuration) -> [GeneralSetting] {
+        [
             GeneralSetting(
-                id: "speech.dictation-key", label: "Dictation key", detail: nil,
-                value: .text(configuration.dictationKey), isEnabled: true),
-            GeneralSetting(
-                id: "shell.lane", label: "Shell integration lane", detail: nil,
-                value: .text(shellLane), isEnabled: false),
+                id: "earcons.enabled", label: "Earcons",
+                detail: "Off silences every Room's earcons without changing its rules.",
+                value: .toggle(configuration.earconsEnabled), isEnabled: true)
         ]
     }
 
@@ -730,7 +746,9 @@ public enum SurfaceProjection {
             IntegrationSetting(
                 id: "herdr",
                 name: "herdr",
-                detail: adapterHealthLabel(adapterHealth),
+                detail: "\(adapterHealthLabel(adapterHealth)). Discovers panes from a "
+                    + "running herdr server; there is nothing to switch on here, it "
+                    + "appears when a server does.",
                 commandLine: nil,
                 presentation: PresentationComposer.compose(adapterComposition),
                 subject: PresentationSubject(
@@ -739,18 +757,30 @@ public enum SurfaceProjection {
                     reason: recordReason(adapterComposition, detail: nil),
                     capability: "Workspace routing"
                 ),
-                isEnabled: adapterHealth != .none
+                isEnabled: adapterHealth != .none,
+                isSwitchable: false
             ),
             IntegrationSetting(
                 id: "mcp",
                 name: "MCP",
-                detail: configuration.mcpEnabled ? "Enabled" : "Disabled",
+                detail: configuration.mcpEnabled
+                    ? "On. Agents and the allward-mcp client can read this "
+                        + "terminal and drive it."
+                    : "Off. Nothing outside Allward can read or drive this terminal.",
                 commandLine: mcpCommandLine,
                 presentation: PresentationComposer.compose(mcpComposition),
                 subject: PresentationSubject(componentName: "Integration", target: "Allward MCP"),
                 isEnabled: configuration.mcpEnabled
             ),
         ]
+    }
+
+    /// The installed monospaced families, with whatever is configured kept in
+    /// the list even if it is missing, so the control never shows blank.
+    private static func fontChoices(selected: String) -> [SettingChoice] {
+        var families = InstalledFonts.monospacedFamilies()
+        if !families.contains(selected) { families.insert(selected, at: 0) }
+        return families.map { SettingChoice(id: $0, label: $0) }
     }
 
     private static func adapterHealthLabel(_ health: AdapterHealth) -> String {
@@ -780,7 +810,8 @@ public enum SurfaceProjection {
             id: "speech-retention",
             label: "Speech retention",
             value: .disabled,
-            detail: "Dictation audio is not retained."
+            detail: "Dictation is transcribed on device and the audio is discarded "
+                + "immediately. There is no setting to retain it."
         ),
     ]
 

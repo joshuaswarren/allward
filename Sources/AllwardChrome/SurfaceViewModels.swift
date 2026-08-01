@@ -957,10 +957,16 @@ public struct IntegrationSetting: Identifiable, Hashable, Sendable {
     public var presentation: ComposedPresentation
     public var subject: PresentationSubject
     public var isEnabled: Bool
+    /// Whether this integration is something you switch, or something that
+    /// reports. herdr appears when a herdr server is running and goes away when
+    /// it stops, so a switch beside it is a lie.
+    public var isSwitchable: Bool
     public init(
         id: String, name: String, detail: String?, commandLine: String?,
-        presentation: ComposedPresentation, subject: PresentationSubject, isEnabled: Bool
+        presentation: ComposedPresentation, subject: PresentationSubject, isEnabled: Bool,
+        isSwitchable: Bool = true
     ) {
+        self.isSwitchable = isSwitchable
         self.id = id; self.name = name; self.detail = detail; self.commandLine = commandLine
         self.presentation = presentation; self.subject = subject; self.isEnabled = isEnabled
     }
@@ -969,7 +975,6 @@ public struct IntegrationSetting: Identifiable, Hashable, Sendable {
 public enum PrivacySettingValue: Hashable, Sendable {
     case onDevice
     case disabled
-    case retentionDays(Int)
     case permissionRequired
 }
 
@@ -988,6 +993,8 @@ public struct SettingsViewState: Hashable, Sendable {
     public var subject: PresentationSubject
     public var selectedTab: SettingsTab
     public var general: [GeneralSetting]
+    public var appearance: [GeneralSetting]
+    public var sound: [GeneralSetting]
     public var rooms: [RoomSetting]
     public var themes: [ThemeSetting]
     public var themeImports: [ThemeImportSetting]
@@ -996,12 +1003,14 @@ public struct SettingsViewState: Hashable, Sendable {
     public var privacy: [PrivacySetting]
     public init(
         presentation: ComposedPresentation, subject: PresentationSubject, selectedTab: SettingsTab,
-        general: [GeneralSetting], rooms: [RoomSetting], themes: [ThemeSetting],
+        general: [GeneralSetting], appearance: [GeneralSetting] = [], sound: [GeneralSetting] = [],
+        rooms: [RoomSetting], themes: [ThemeSetting],
         themeImports: [ThemeImportSetting], keys: [KeySetting],
         integrations: [IntegrationSetting], privacy: [PrivacySetting]
     ) {
         self.presentation = presentation; self.subject = subject; self.selectedTab = selectedTab
-        self.general = general; self.rooms = rooms; self.themes = themes
+        self.general = general; self.appearance = appearance; self.sound = sound
+        self.rooms = rooms; self.themes = themes
         self.themeImports = themeImports; self.keys = keys
         self.integrations = integrations; self.privacy = privacy
     }
@@ -1101,14 +1110,14 @@ public struct SettingsViewState: Hashable, Sendable {
                     id: "intelligence", label: "Intelligence", value: .onDevice,
                     detail: "Deterministic facts stay visible when rewriting is unavailable."),
                 PrivacySetting(
-                    id: "history", label: "Digest history", value: .retentionDays(7),
+                    id: "history", label: "Digest history", value: .onDevice,
                     detail: "Acknowledged digests remain in bounded local history."),
                 PrivacySetting(
                     id: "crash-reports", label: "Crash reports", value: .permissionRequired,
                     detail: "Ask before sharing a crash report."),
                 PrivacySetting(
-                    id: "speech-retention", label: "Speech retention", value: .retentionDays(1),
-                    detail: "Delete retained speech transcripts after one day."),
+                    id: "speech-retention", label: "Speech retention", value: .disabled,
+                    detail: "Dictation audio is discarded immediately."),
             ])
     }
 

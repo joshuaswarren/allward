@@ -227,7 +227,12 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(3))
             await model.refreshTopology()
         case "escape":
-            window.cancelOperation(nil)
+            // A real key event through the normal path. Calling
+            // `cancelOperation` directly proved the method worked while Escape
+            // itself stayed broken, which is exactly the mistake that let this
+            // ship twice.
+            sendEscapeKey(to: window)
+            try? await Task.sleep(for: .milliseconds(400))
         case let step where step.hasPrefix("theme-"):
             await model.applySettingsUpdate(.selectTheme(themeID: String(step.dropFirst(6))))
         case let step where step.hasPrefix("tab-"):
@@ -241,6 +246,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "palette":
             window.presentCommandPalette()
             await waitForSurface(window)
+        case let step where step.hasPrefix("settings-"):
+            // A settings section can only be verified if the harness can reach
+            // it; three broken controls sat on sections nothing ever opened.
+            guard let tab = SettingsTab(rawValue: String(step.dropFirst(9))) else { break }
+            model.selectedSettingsTab = tab
+            window.presentSettings()
+            await waitForSurface(window)
         case "settings":
             window.presentSettings()
             await waitForSurface(window)
@@ -249,6 +261,20 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             await waitForSurface(window)
         default: break
         }
+    }
+
+    /// Posts Escape the way the keyboard does, so the test exercises key
+    /// routing rather than the handler it is supposed to reach.
+    private func sendEscapeKey(to window: MainWindowController) {
+        guard let nsWindow = window.window,
+            let down = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: nsWindow.windowNumber, context: nil,
+                characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false, keyCode: 53)
+        else { return }
+        NSApp.sendEvent(down)
     }
 
     /// A surface presents through an async projection, so a capture that fires

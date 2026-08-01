@@ -14,18 +14,19 @@ public enum SettingsUpdate: Hashable, Sendable {
     case importTheme(format: String)
     case setKeyShortcut(keyID: String, shortcut: String)
     case setIntegration(integrationID: String, enabled: Bool)
-    case reviewPrivacy(itemID: String)
-    case setRetention(itemID: String, days: Int)
+    case addRoom
+    case renameRoom(roomID: String, name: String)
+    case deleteRoom(roomID: String)
 }
 
 @MainActor
 public struct SettingsView: View {
-    private static let speechRetentionRange = 0...365
 
     @Environment(\.allwardPalette) private var palette
     @FocusState private var tabPickerFocused: Bool
     @State private var selectedTab: SettingsTab
     @State private var generalValues: [String: GeneralSettingValue]
+    @State private var roomNames: [String: String] = [:]
     @State private var roomTintIDs: [String: String]
     @State private var roomThemeIDs: [String: String]
     @State private var roomEarcons: [String: Bool]
@@ -251,11 +252,23 @@ public struct SettingsView: View {
 
     private var roomSettings: some View {
         VStack(alignment: .leading, spacing: SpaceToken.section.points) {
-            SectionHeader("Rooms", count: state.rooms.count)
+            ForEach(state.sound) { item in generalControl(item) }
+            HStack(spacing: SpaceToken.inlineStandard.points) {
+                SectionHeader("Rooms", count: state.rooms.count)
+                Spacer(minLength: SpaceToken.inlineStandard.points)
+                // Below the list this sat past every Room's notification rules,
+                // so the way to add one was out of sight.
+                Button { emit(.addRoom) } label: {
+                    Label("Add Room", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .tokenForeground(.textSecondary, palette)
+                .accessibilityLabel("Add Room")
+            }
             if state.rooms.isEmpty {
                 EmptyStateView(
                     title: "No Rooms configured",
-                    reason: "Create a Room from the Room switcher before editing its settings"
+                    reason: "Add a Room to group sessions, hosts and themes however you work"
                 )
             } else {
                 ForEach(state.rooms) { room in roomControl(room) }
@@ -266,9 +279,28 @@ public struct SettingsView: View {
     private func roomControl(_ room: RoomSetting) -> some View {
         VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
             HStack(alignment: .firstTextBaseline, spacing: SpaceToken.inlineStandard.points) {
-                Text(room.name)
-                    .tokenFont(.uiHeading, palette)
-                    .tokenForeground(.textPrimary, palette)
+                TextField(
+                    "Room name",
+                    text: Binding(
+                        get: { roomNames[room.id] ?? room.name },
+                        set: { roomNames[room.id] = $0 })
+                )
+                .textFieldStyle(.plain)
+                .tokenFont(.uiHeading, palette)
+                .tokenForeground(.textPrimary, palette)
+                .onSubmit {
+                    emit(.renameRoom(roomID: room.id, name: roomNames[room.id] ?? room.name))
+                }
+                .accessibilityLabel("Room name")
+                Button(role: .destructive) {
+                    emit(.deleteRoom(roomID: room.id))
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .tokenForeground(.textSecondary, palette)
+                .help("Delete \(room.name)")
+                .accessibilityLabel("Delete \(room.name)")
                 Spacer(minLength: SpaceToken.inlineStandard.points)
                 Text("\(room.sessionCount) sessions · \(room.hostSummary)")
                     .tokenFont(.uiData, palette)
@@ -341,6 +373,7 @@ public struct SettingsView: View {
 
     private var themeSettings: some View {
         VStack(alignment: .leading, spacing: SpaceToken.section.points) {
+            ForEach(state.appearance) { item in generalControl(item) }
             SectionHeader("Themes", count: state.themes.count)
             ForEach(state.themes) { theme in
                 Button {
@@ -428,12 +461,18 @@ public struct SettingsView: View {
             ForEach(state.integrations) { integration in
                 VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
                     HStack(spacing: SpaceToken.inlineStandard.points) {
-                        Toggle(isOn: integrationBinding(integration)) {
+                        if integration.isSwitchable {
+                            Toggle(isOn: integrationBinding(integration)) {
+                                Text(integration.name)
+                                    .tokenFont(.uiHeading, palette)
+                                    .tokenForeground(.textPrimary, palette)
+                            }
+                            .toggleStyle(.switch)
+                        } else {
                             Text(integration.name)
                                 .tokenFont(.uiHeading, palette)
                                 .tokenForeground(.textPrimary, palette)
                         }
-                        .toggleStyle(.switch)
                         Spacer(minLength: SpaceToken.inlineStandard.points)
                         StateBadge(presentation: integration.presentation, subject: integration.subject)
                     }
@@ -491,26 +530,8 @@ public struct SettingsView: View {
                 privacyStatus("On device", state: .live)
             case .disabled:
                 privacyStatus("Off", state: .empty)
-                Button("Review opt-in") { emit(.reviewPrivacy(itemID: item.id)) }
             case .permissionRequired:
                 privacyStatus("Permission required", state: .needsInput)
-                Button("Review before enabling") { emit(.reviewPrivacy(itemID: item.id)) }
-            case .retentionDays(let days):
-                Stepper(
-                    value: Binding(
-                        get: { privacyRetention(item.id, fallback: days) },
-                        set: { newValue in
-                            privacyValues[item.id] = .retentionDays(newValue)
-                            emit(.setRetention(itemID: item.id, days: newValue))
-                        }
-                    ),
-                    in: Self.speechRetentionRange
-                ) {
-                    Text(days == 0 ? "Do not retain" : "Retain for \(privacyRetention(item.id, fallback: days)) days")
-                        .tokenFont(.uiData, palette)
-                        .tokenForeground(.textPrimary, palette)
-                }
-                .accessibilityLabel("\(item.label) retention")
             }
         }
         .padding(.vertical, SpaceToken.blockCompact.points)
@@ -660,10 +681,6 @@ public struct SettingsView: View {
         )
     }
 
-    private func privacyRetention(_ id: String, fallback: Int) -> Int {
-        guard let stored = privacyValues[id], case .retentionDays(let days) = stored else { return fallback }
-        return days
-    }
 
     private func numberText(_ value: Double) -> String {
         value.rounded() == value ? String(Int(value)) : String(value)
@@ -681,9 +698,9 @@ public struct SettingsView: View {
 
     private func tabTitle(_ tab: SettingsTab) -> String {
         switch tab {
-        case .general: "General"
+        case .general: "Terminal"
         case .rooms: "Rooms"
-        case .themes: "Themes"
+        case .themes: "Appearance"
         case .keys: "Keys"
         case .integrations: "Integrations"
         case .privacy: "Privacy"

@@ -271,7 +271,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         overlayHost.isHidden = false
         let host = window?.contentView?.bounds.size ?? .zero
         overlayHost.rootView = AnyView(
-            SummonedCard(maxHeight: host.height * Self.surfaceHeightShare) { content }
+            SummonedCard(
+                maxHeight: host.height * Self.surfaceHeightShare,
+                onEscape: { [weak self] in self?.dismissSummonedSurface() }
+            ) { content }
                 .allwardPalette(model.palette)
                 .background(model.palette[.surfaceScrim].swiftUIColor)
         )

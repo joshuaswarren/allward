@@ -136,3 +136,23 @@ public struct KeyboardFocusRing: ViewModifier {
         }
     }
 }
+
+
+/// The monospaced font families actually installed on this Mac.
+///
+/// The font setting used to be a free-text field: you had to know a family's
+/// exact name, and a typo silently fell back to Menlo with no indication that
+/// anything was wrong. A terminal should offer what it can actually render.
+public enum InstalledFonts {
+    public static func monospacedFamilies() -> [String] {
+        let collection = NSFontManager.shared.availableFontFamilies
+        var families: [String] = []
+        for family in collection {
+            guard let font = NSFont(name: family, size: 12) else { continue }
+            // Fixed pitch is the honest test: a terminal grid needs every cell
+            // to be the same width, whatever the family calls itself.
+            if font.isFixedPitch { families.append(family) }
+        }
+        return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}

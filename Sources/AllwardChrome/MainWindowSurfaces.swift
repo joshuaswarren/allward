@@ -135,7 +135,8 @@ extension MainWindowController {
             themes: ThemeCatalog.builtIns.map(\.name),
             adapterHealth: model.adapterHealth,
             mcpCommandLine: "allward-mcp",
-            shellLane: "OSC 133"
+            shellLane: "OSC 133",
+            selectedTab: model.selectedSettingsTab
         )
         present(
             .settings,
