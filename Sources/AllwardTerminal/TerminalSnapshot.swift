@@ -311,6 +311,8 @@ public struct TerminalSnapshot: Sendable {
     public var selection: Selection?
     public var damage: Damage
     public var title: String?
+    /// Bells received since the session started.
+    public var bellCount: UInt64
     /// Rows scrolled off above the viewport, for scrollbar geometry.
     public var scrollbackCount: Int
     /// Viewport offset above the live bottom, in rows. Zero means pinned.
@@ -329,6 +331,7 @@ public struct TerminalSnapshot: Sendable {
         selection: Selection? = nil,
         damage: Damage = .full,
         title: String? = nil,
+        bellCount: UInt64 = 0,
         scrollbackCount: Int = 0,
         scrollOffset: Int = 0,
         commandRegions: [CommandRegion] = [],
@@ -343,6 +346,7 @@ public struct TerminalSnapshot: Sendable {
         self.selection = selection
         self.damage = damage
         self.title = title
+        self.bellCount = bellCount
         self.scrollbackCount = scrollbackCount
         self.scrollOffset = scrollOffset
         self.commandRegions = commandRegions

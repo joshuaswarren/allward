@@ -222,6 +222,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             await waitForSurface(window)
         case let step where step.hasPrefix("search-"):
             await model.search(for: String(step.dropFirst(7)))
+        case "wait":
+            try? await Task.sleep(for: .seconds(3))
+            await model.refreshTopology()
         case "escape":
             window.cancelOperation(nil)
         case let step where step.hasPrefix("theme-"):

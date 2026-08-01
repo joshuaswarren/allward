@@ -16,6 +16,9 @@ public final class Terminal {
     private var generation = Generation.initial
     private var damage = Damage.full
     private var title: String?
+    /// Monotonic count of bells received, so a consumer can tell a new one
+    /// from a repeat without the engine deciding how to express it.
+    private var bellCount: UInt64 = 0
     private var scrollOffset = 0
     private var responseBuffer: [UInt8] = []
     private var tabStops: Set<Int> = []
@@ -165,6 +168,7 @@ public final class Terminal {
             selection: selection,
             damage: normalizedDamage(),
             title: title,
+            bellCount: bellCount,
             scrollbackCount: scrollback.count,
             scrollOffset: scrollOffset,
             commandRegions: commandReducer.regions,
@@ -318,7 +322,12 @@ public final class Terminal {
         case .horizontalTab: moveTabs(forward: true, count: 1)
         case .lineFeed, .verticalTab, .formFeed: appendScrollback(grid.lineFeed())
         case .carriageReturn: grid.carriageReturn()
-        case .bell, .shiftIn, .shiftOut: break
+        case .bell:
+            // The bell is a real signal a program sends, not noise to discard.
+            // The engine only records it; how it is expressed is the app's
+            // decision, because a bell must also be visible to be accessible.
+            bellCount &+= 1
+        case .shiftIn, .shiftOut: break
         }
     }
 
@@ -442,6 +451,7 @@ public final class Terminal {
         modes = TerminalModes()
         selection = nil
         title = nil
+        bellCount = 0
         scrollOffset = 0
         hyperlinks.removeAll(keepingCapacity: true)
         nextHyperlinkID = 1

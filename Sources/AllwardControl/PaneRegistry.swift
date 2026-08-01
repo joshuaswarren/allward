@@ -220,7 +220,15 @@ actor PaneRegistry {
             let remaining = tab.tree?.leaves ?? []
             tab.focusedPane = remaining.isEmpty ? nil : remaining[min(closedIndex, remaining.count - 1)]
         }
-        window.tabs[position.tab] = tab
+        // A tab whose last pane closed is finished: every terminal collapses
+        // the tab rather than leaving an empty frame behind.
+        if tab.tree == nil || tab.tree?.leaves.isEmpty == true {
+            window.tabs.removeValue(forKey: position.tab)
+            window.tabOrder.removeAll { $0 == position.tab }
+            window.focusedTab = window.tabOrder.last
+        } else {
+            window.tabs[position.tab] = tab
+        }
         windows[position.window] = window
         panes.removeValue(forKey: paneID)
         return .success(RemovedPane(session: entry.session, change: advance()))

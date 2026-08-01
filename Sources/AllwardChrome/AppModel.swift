@@ -234,7 +234,24 @@ public final class AppModel {
                 self.paneViews[pane]?.apply(snapshot, focused: self.focusedPane == pane)
                 self.refreshHeader(for: pane, snapshot: snapshot)
             }
+            // The stream ends when the shell exits. Typing `exit` has to take
+            // the pane with it, and the tab and window when it was the last
+            // one, which is what every terminal does and what this did not.
+            guard !Task.isCancelled, let self else { return }
+            await self.paneSessionEnded(pane)
         }
+    }
+
+    /// The pane's process is gone, so the pane goes too.
+    private func paneSessionEnded(_ pane: PaneID) async {
+        topology = await control.listPanes()
+        guard let entry = topology.panes.first(where: { $0.id == pane }) else { return }
+        await applyingLiveGeneration { generation in
+            await control.closePane(
+                target: paneTarget(entry, pane), generation: generation,
+                idempotencyKey: nextKey())
+        }
+        await refreshTopology()
     }
 
     public func releasePane(_ pane: PaneID) {

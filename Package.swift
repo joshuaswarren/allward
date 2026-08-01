@@ -109,6 +109,6 @@ let package = Package(
             name: "AllwardSurfacesTests",
             dependencies: ["AllwardSurfaces", "AllwardRooms", "AllwardProtocol"]
         ),
-        .testTarget(name: "AllwardDesignTests", dependencies: ["AllwardDesign"]),
+        .testTarget(name: "AllwardDesignTests", dependencies: ["AllwardDesign", "AllwardRooms"]),
     ] + darwinTargets
 )

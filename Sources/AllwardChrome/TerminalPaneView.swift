@@ -44,6 +44,52 @@ public final class TerminalPaneView: NSView {
     private let metalLayer = CAMetalLayer()
     private var captureLayer: CALayer?
 
+    /// A bell the user can hear *and* see.
+    ///
+    /// macOS offers "Flash the screen when an alert sound occurs" precisely
+    /// because an audible-only bell is invisible to a deaf user, and a terminal
+    /// that only beeps is unusable with the sound off. The flash is a static
+    /// tint rather than an animation so Reduce Motion needs no special case.
+    private func ringBell() {
+        NSSound.beep()
+        bellFlash.frame = bounds
+        bellFlash.backgroundColor = palette[.strokeKeyboardFocus].withAlpha(0.22).cgColor
+        bellFlash.isHidden = false
+        bellFlashWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.bellFlash.isHidden = true }
+        bellFlashWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// The focus ring, guaranteed legible against the grid it is drawn on.
+    ///
+    /// The chrome palette answers to the system appearance while the grid
+    /// answers to the Room, so the two can disagree: the dark chrome ring on
+    /// the light theme measures 1.90:1, well under the 3:1 WCAG 1.4.11 sets for
+    /// a focus indicator. The token is used as the starting point and moved
+    /// toward whichever pole clears the floor.
+    static func focusRingColor(
+        palette: DesignPalette, theme: TerminalTheme, floor: Double = 3
+    ) -> TokenColor {
+        let background = theme.defaultBackground
+        let token = palette[.strokeKeyboardFocus]
+        guard token.contrastRatio(against: background) < floor else { return token }
+        let pole =
+            background.relativeLuminance > 0.5
+            ? TokenColor(0, 0, 0) : TokenColor(1, 1, 1)
+        var low = 0.0
+        var high = 1.0
+        for _ in 0 ..< 12 {
+            let mid = (low + high) / 2
+            if token.mixed(with: pole, amount: mid).contrastRatio(against: background) < floor {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return token.mixed(with: pole, amount: high)
+    }
+
     /// The ring that marks the focused pane.
     ///
     /// It used to be four flat rectangles inside the Metal scene, which made it
@@ -51,6 +97,8 @@ public final class TerminalPaneView: NSView {
     /// rounds properly, sits outside the grid so the text has room to breathe,
     /// and keeps the render path to glyphs.
     private let focusRing = CALayer()
+    private let bellFlash = CALayer()
+    private var bellFlashWork: DispatchWorkItem?
     private var fontFamily: String?
     private var fontSize: Double
     private var trackingAreaRef: NSTrackingArea?
@@ -82,6 +130,8 @@ public final class TerminalPaneView: NSView {
         focusRing.cornerCurve = .continuous
         focusRing.isHidden = true
         layer?.addSublayer(focusRing)
+        bellFlash.isHidden = true
+        layer?.addSublayer(bellFlash)
         allowedTouchTypes = []
     }
 
@@ -211,11 +261,13 @@ public final class TerminalPaneView: NSView {
     public private(set) var isPaneFocused = true
 
     public func apply(_ snapshot: TerminalSnapshot, focused: Bool) {
+        let previousBell = self.snapshot?.bellCount ?? snapshot.bellCount
         self.snapshot = snapshot
+        if snapshot.bellCount > previousBell { ringBell() }
         isPaneFocused = focused
         metalLayer.opacity = focused ? 1 : Self.unfocusedOpacity
         focusRing.isHidden = focused == false
-        focusRing.borderColor = palette[.strokeKeyboardFocus].withAlpha(0.72).cgColor
+        focusRing.borderColor = Self.focusRingColor(palette: palette, theme: theme).cgColor
         renderer?.update(
             snapshot: snapshot, palette: palette, theme: theme, focused: focused)
         setAccessibilityNeedsRefresh()
@@ -381,18 +433,108 @@ public final class TerminalPaneView: NSView {
     public override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
     public override func accessibilityLabel() -> String? { snapshot?.title ?? "Terminal" }
 
-    public override func accessibilityValue() -> Any? {
-        guard let snapshot else { return "" }
-        return (0..<snapshot.geometry.rows).map { snapshot.plainText(row: $0) }
-            .joined(separator: "\n")
-    }
+    /// Rebuilt when the snapshot changes, because every text query below is
+    /// answered in character offsets and recomputing them per query would make
+    /// VoiceOver navigation quadratic in the size of the screen.
+    private var textProjection: TerminalTextProjection = .empty
+    private var pendingAnnouncement: DispatchWorkItem?
+
+    public override func accessibilityValue() -> Any? { textProjection.text }
 
     public override func accessibilityNumberOfCharacters() -> Int {
-        (accessibilityValue() as? String)?.count ?? 0
+        textProjection.text.utf16.count
     }
 
+    public override func accessibilityVisibleCharacterRange() -> NSRange {
+        NSRange(location: 0, length: textProjection.text.utf16.count)
+    }
+
+    // MARK: Line navigation
+    //
+    // VoiceOver reads a terminal line by line. Without these it can only read
+    // the screen as one undifferentiated paragraph.
+
+    public override func accessibilityLine(for index: Int) -> Int {
+        textProjection.line(for: index)
+    }
+
+    public override func accessibilityRange(forLine line: Int) -> NSRange {
+        textProjection.range(forLine: line)
+    }
+
+    public override func accessibilityString(for range: NSRange) -> String? {
+        textProjection.string(for: range)
+    }
+
+    public override func accessibilityRange(for index: Int) -> NSRange {
+        textProjection.range(forLine: textProjection.line(for: index))
+    }
+
+    // MARK: Cursor and selection
+
+    public override func accessibilityInsertionPointLineNumber() -> Int {
+        textProjection.cursorLine
+    }
+
+    public override func accessibilitySelectedTextRange() -> NSRange {
+        textProjection.selectedRange ?? textProjection.cursorRange
+    }
+
+    public override func accessibilitySelectedTextRanges() -> [NSValue]? {
+        [NSValue(range: accessibilitySelectedTextRange())]
+    }
+
+    public override func accessibilitySelectedText() -> String? {
+        guard let range = textProjection.selectedRange else { return nil }
+        return textProjection.string(for: range)
+    }
+
+    /// Where a range of characters sits on screen, in screen coordinates, so
+    /// VoiceOver's cursor can track what it is reading.
+    public override func accessibilityFrame(for range: NSRange) -> NSRect {
+        let line = textProjection.line(for: range.location)
+        let lineRange = textProjection.range(forLine: line)
+        let column = max(0, range.location - lineRange.location)
+        let rect = CGRect(
+            x: gridRect.minX + CGFloat(column) * metrics.cellWidth / metalLayer.contentsScale,
+            y: gridRect.minY + CGFloat(line) * metrics.cellHeight / metalLayer.contentsScale,
+            width: CGFloat(max(1, range.length)) * metrics.cellWidth / metalLayer.contentsScale,
+            height: metrics.cellHeight / metalLayer.contentsScale)
+        return window?.convertToScreen(convert(rect, to: nil)) ?? rect
+    }
+
+    /// Output arrives per frame, and announcing every frame makes VoiceOver
+    /// stutter continuously through anything verbose. DESIGN-LANGUAGE §24.2
+    /// requires bursts to be coalesced and forbids per-frame announcements, so
+    /// content changes are collapsed onto a trailing tick while cursor and
+    /// selection movement — which the user caused and is waiting on — go out
+    /// immediately.
+    private static let announcementInterval: TimeInterval = 0.4
+
     private func setAccessibilityNeedsRefresh() {
-        NSAccessibility.post(element: self, notification: .valueChanged)
+        let previous = textProjection
+        textProjection = snapshot.map(TerminalTextProjection.init) ?? .empty
+
+        if textProjection.selectedRange != previous.selectedRange {
+            NSAccessibility.post(element: self, notification: .selectedTextChanged)
+        }
+        if textProjection.cursorRange != previous.cursorRange {
+            NSAccessibility.post(element: self, notification: .selectedTextChanged)
+        }
+        guard textProjection.text != previous.text else { return }
+        scheduleContentAnnouncement()
+    }
+
+    private func scheduleContentAnnouncement() {
+        guard pendingAnnouncement == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            pendingAnnouncement = nil
+            NSAccessibility.post(element: self, notification: .valueChanged)
+        }
+        pendingAnnouncement = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.announcementInterval, execute: work)
     }
 }
 
