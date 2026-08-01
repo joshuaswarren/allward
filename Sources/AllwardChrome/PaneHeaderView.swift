@@ -120,9 +120,24 @@ public struct PaneHeaderView: View {
                 .fill(palette[.strokeDivider].swiftUIColor)
                 .frame(height: StrokeToken.paneDivider.width(palette.settings))
         }
+        // `.combine` merges the chips into one element, and an explicit label
+        // then replaces that merged text entirely. Naming the header in full
+        // keeps the room, host, workspace and pane identity audible instead of
+        // discarding every chip in favour of the session name.
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.sessionName)
+        .accessibilityLabel(accessibilityHeaderLabel)
         .accessibilityValue(model.presentation.accessibilityValue(model.subject))
+    }
+
+    /// The header read in the order DESIGN-LANGUAGE §23.2 lays it out.
+    private var accessibilityHeaderLabel: String {
+        var parts: [String] = []
+        parts.append("Room \(model.roomName)")
+        parts.append(model.sessionName)
+        if let host = model.host { parts.append(host) }
+        if let workspace = model.workspace { parts.append(workspace) }
+        parts.append(model.paneLabel)
+        return parts.joined(separator: ", ")
     }
 
     private var roomIdentity: some View {

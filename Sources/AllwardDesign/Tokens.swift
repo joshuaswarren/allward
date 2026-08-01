@@ -135,15 +135,23 @@ public struct AccessibilitySettings: Hashable, Sendable, Codable {
     public var reduceTransparency: Bool
     public var increaseContrast: Bool
     public var reduceMotion: Bool
+    /// The user has asked for meaning to be carried by more than hue.
+    ///
+    /// Room identity is the one place this app leans on colour alone, so the
+    /// setting has to reach the code that draws it rather than being assumed
+    /// satisfied.
+    public var differentiateWithoutColor: Bool
 
     public init(
         reduceTransparency: Bool = false,
         increaseContrast: Bool = false,
-        reduceMotion: Bool = false
+        reduceMotion: Bool = false,
+        differentiateWithoutColor: Bool = false
     ) {
         self.reduceTransparency = reduceTransparency
         self.increaseContrast = increaseContrast
         self.reduceMotion = reduceMotion
+        self.differentiateWithoutColor = differentiateWithoutColor
     }
 
     public static let standard = AccessibilitySettings()

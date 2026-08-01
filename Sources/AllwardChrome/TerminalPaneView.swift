@@ -472,6 +472,53 @@ public final class TerminalPaneView: NSView {
 
     // MARK: Cursor and selection
 
+    /// Each finished command is a navigable element.
+    ///
+    /// OSC 133 already tells us where every prompt, command and exit code sits.
+    /// Exposing them means a VoiceOver user can move command by command
+    /// instead of line by line through a screen of output, which is how people
+    /// actually read a terminal (DESIGN-LANGUAGE §24.5).
+    public override func accessibilityChildren() -> [Any]? {
+        commandElements.isEmpty ? nil : commandElements
+    }
+
+    private var commandElements: [NSAccessibilityElement] {
+        guard let snapshot else { return [] }
+        return snapshot.commandRegions.compactMap { region in
+            guard let row = snapshot.rowIDs.firstIndex(of: region.promptLine) else { return nil }
+            let element = NSAccessibilityElement()
+            element.setAccessibilityRole(.staticText)
+            element.setAccessibilityParent(self)
+            element.setAccessibilityLabel(Self.commandLabel(region))
+            element.setAccessibilityValue(snapshot.plainText(row: row))
+            element.setAccessibilityFrameInParentSpace(
+                CGRect(
+                    x: gridRect.minX,
+                    y: gridRect.minY + CGFloat(row) * metrics.cellHeight
+                        / metalLayer.contentsScale,
+                    width: gridRect.width,
+                    height: metrics.cellHeight / metalLayer.contentsScale))
+            return element
+        }
+    }
+
+    /// What the command was and how it ended, since an exit code read aloud is
+    /// the fastest way to know whether something worked.
+    private static func commandLabel(_ region: CommandRegion) -> String {
+        var parts = [region.commandText.map { "Command \($0)" } ?? "Prompt"]
+        switch region.phase {
+        case .finished:
+            if let code = region.exitCode {
+                parts.append(code == 0 ? "succeeded" : "failed with code \(code)")
+            } else {
+                parts.append("finished")
+            }
+        case .outputStart: parts.append("running")
+        case .promptStart, .inputStart: break
+        }
+        return parts.joined(separator: ", ")
+    }
+
     public override func accessibilityInsertionPointLineNumber() -> Int {
         textProjection.cursorLine
     }

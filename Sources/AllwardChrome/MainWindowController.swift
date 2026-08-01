@@ -116,6 +116,24 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     public func paletteDidChange(_ palette: DesignPalette) {
         splitHost.palette = palette
         applyPalette()
+        // A hosted surface captured the old palette when it was built, so an
+        // accessibility change made while one is open would not reach it. Any
+        // presented surface is rebuilt against the new palette.
+        rebuildPresentedSurface()
+    }
+
+    private func rebuildPresentedSurface() {
+        switch overlay {
+        case .board: presentBoard()
+        case .digest: presentDigest()
+        case .commandPalette: presentCommandPalette()
+        case .settings: presentSettings()
+        case .diagnostics: presentDiagnostics()
+        case .roomSwitcher: presentRoomSwitcher()
+        case .hostPicker: presentHostPicker()
+        case .find: presentFind()
+        case .none: break
+        }
     }
 
     private func applyPalette() {

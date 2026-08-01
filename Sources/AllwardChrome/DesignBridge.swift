@@ -70,7 +70,9 @@ public enum SystemAccessibility {
         return AllwardDesign.AccessibilitySettings(
             reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
             increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
-            reduceMotion: workspace.accessibilityDisplayShouldReduceMotion
+            reduceMotion: workspace.accessibilityDisplayShouldReduceMotion,
+            differentiateWithoutColor: workspace
+                .accessibilityDisplayShouldDifferentiateWithoutColor
         )
     }
 
