@@ -171,7 +171,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         try? await Task.sleep(for: .seconds(1))
         do {
             try await WindowCapture.capture(window: nsWindow, model: model, to: url)
-            let items = nsWindow.toolbar?.visibleItems?.map(\.itemIdentifier.rawValue) ?? []
+            // A tooltip is the only text an icon-only toolbar shows, and a
+            // disabled item shows none at all, so report both.
+            let items = (nsWindow.toolbar?.visibleItems ?? []).map {
+                "\($0.itemIdentifier.rawValue)[enabled=\($0.isEnabled) "
+                    + "viewTip=\($0.view?.toolTip ?? "none") "
+                    + "axHelp=\($0.view?.accessibilityHelp() ?? "none")]"
+            }
             print("captured \(url.path)")
             print("toolbar items: \(items.joined(separator: ", "))")
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
@@ -226,6 +232,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         case "wait":
             try? await Task.sleep(for: .seconds(3))
             await model.refreshTopology()
+        case "teleport":
+            let before = model.focusedPane?.shortLabel ?? "none"
+            await model.teleportToRoutedDestination()
+            print(
+                "teleport: actionable=\(model.routerState?.actionableCount ?? -1) "
+                    + "pane \(before) -> \(model.focusedPane?.shortLabel ?? "none") "
+                    + "note=\(model.lastActionMessage ?? "none")")
         case "escape":
             // Focus has to settle first: SwiftUI installs the key view that
             // swallowed Escape a moment after the card appears, so firing

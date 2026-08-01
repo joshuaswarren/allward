@@ -18,6 +18,7 @@ private final class AppSurfaceState {
     var router: RouterViewState?
     var digest: DigestViewState?
     var lastActionMessage: String?
+    var messageClearTask: Task<Void, Never>?
     var snapshot: SurfaceSnapshot?
     var projectedGeneration: Generation?
     var selectedSettingsTab: SettingsTab = .general
@@ -64,9 +65,32 @@ extension AppModel {
         set { surfaceState(for: self).selectedSettingsTab = newValue }
     }
 
+    /// What the last action had to say for itself.
+    ///
+    /// Until now nothing displayed this. Every refusal in the application -
+    /// "Close Work's windows before deleting it", "The attention router has no
+    /// actionable destination" - was written here and read only by the capture
+    /// harness, so from the outside those actions did nothing at all. Setting
+    /// it now shows it, and clears it again so it stays a message rather than
+    /// becoming furniture.
     public var lastActionMessage: String? {
         get { surfaceState(for: self).lastActionMessage }
-        set { surfaceState(for: self).lastActionMessage = newValue }
+        set {
+            let state = surfaceState(for: self)
+            state.lastActionMessage = newValue
+            state.messageClearTask?.cancel()
+            guard newValue != nil else { return }
+            state.messageClearTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self else { return }
+                surfaceState(for: self).lastActionMessage = nil
+                await projectSurfaceSnapshot(for: self, force: true)
+            }
+            Task { [weak self] in
+                guard let self else { return }
+                await projectSurfaceSnapshot(for: self, force: true)
+            }
+        }
     }
 
     public func openInitialSession(tab: TabID? = nil) async {
@@ -540,12 +564,16 @@ private func projectSurfaceSnapshot(
     // DESIGN-LANGUAGE §23.5 allows the strip to be absent with nothing
     // actionable. A permanent "no actionable items" band is chrome that earns
     // nothing; the Board command stays in the toolbar and the menu.
-    if let routerState = model.routerState, routerState.actionableCount > 0
-        || !routerState.items.isEmpty
+    let message = state.lastActionMessage
+    if let routerState = model.routerState,
+        RouterStripView.isVisible(
+            actionableCount: routerState.actionableCount,
+            hasItems: !routerState.items.isEmpty, message: message)
     {
         targetWindow?.setRouterStrip(
             RouterStripView(
                 state: routerState,
+                message: message,
                 onOpenBoard: { [weak targetWindow] in targetWindow?.presentBoard() },
                 onOpenDestination: { [weak model] key in
                     guard let model else { return }

@@ -393,6 +393,9 @@ extension MainWindowController: NSToolbarDelegate {
         let label: String
         let symbol: String
         let help: String
+        /// Shown when the command cannot act. A button that can go dim has to
+        /// say why, or dim is just another kind of broken.
+        var unavailableHelp: String?
         let action: Selector
     }
 
@@ -409,8 +412,11 @@ extension MainWindowController: NSToolbarDelegate {
             action: #selector(AllwardAppDelegate.showBoard(_:))),
         ToolbarCommand(
             id: NSToolbarItem.Identifier("allward.teleport"), label: "Teleport",
-            symbol: "arrow.uturn.forward",
+            // Not `arrow.uturn.forward`: that is the redo arrow, and in a
+            // terminal a forward arrow to a line reads as end-of-line.
+            symbol: "scope",
             help: "Jump to the session that most needs attention.",
+            unavailableHelp: "Nothing needs attention right now.",
             action: #selector(AllwardAppDelegate.teleport(_:))),
         ToolbarCommand(
             id: NSToolbarItem.Identifier("allward.settings"), label: "Settings",
@@ -434,14 +440,16 @@ extension MainWindowController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         guard let command = Self.toolbarCommands.first(where: { $0.id == identifier })
         else { return nil }
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = command.label
-        item.image = NSImage(
-            systemSymbolName: command.symbol, accessibilityDescription: command.help)
-        item.toolTip = command.help
-        item.action = command.action
-        item.isBordered = true
-        item.target = nil
+        let item = SurfaceToolbarItem(
+            itemIdentifier: identifier, label: command.label, symbol: command.symbol,
+            help: command.help, unavailableHelp: command.unavailableHelp,
+            action: command.action)
+        if command.id.rawValue == "allward.teleport" {
+            item.isAvailable = { [weak self] in
+                (self?.model.routerState?.actionableCount ?? 0) > 0
+            }
+        }
+        item.validate()
         return item
     }
 }

@@ -8,17 +8,34 @@ public struct RouterStripView: View {
     @Environment(\.allwardPalette) private var palette
 
     public let state: RouterViewState
+    /// What the last action had to say. Shown here because an action that
+    /// refuses and says nothing is indistinguishable from one that is broken.
+    public let message: String?
     public let onOpenBoard: @MainActor () -> Void
     public let onOpenDestination: @MainActor (String) -> Void
 
     public init(
         state: RouterViewState,
+        message: String? = nil,
         onOpenBoard: @escaping @MainActor () -> Void = {},
         onOpenDestination: @escaping @MainActor (String) -> Void = { _ in }
     ) {
+        self.message = message
         self.state = state
         self.onOpenBoard = onOpenBoard
         self.onOpenDestination = onOpenDestination
+    }
+
+    /// Whether the strip belongs on screen.
+    ///
+    /// DESIGN-LANGUAGE §23.5 keeps it away when nothing is actionable, because
+    /// a permanent "no actionable items" band earns nothing. A message is the
+    /// exception: it is the only place the application can answer for an
+    /// action, and it clears itself.
+    public static func isVisible(
+        actionableCount: Int, hasItems: Bool, message: String?
+    ) -> Bool {
+        actionableCount > 0 || hasItems || message != nil
     }
 
     public var body: some View {
@@ -44,7 +61,17 @@ public struct RouterStripView: View {
 
     @ViewBuilder
     private var stripContent: some View {
-        if state.presentation.state == .loading {
+        if let message {
+            HStack(spacing: SpaceToken.inlineStandard.points) {
+                let mark = StateMark.mark(for: .needsInput)
+                Label(message, systemImage: mark.symbolName)
+                    .tokenFont(.uiLabel, palette)
+                    .tokenForeground(mark.color, palette)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityLabel(message)
+        } else if state.presentation.state == .loading {
             loadingContent
         } else if state.zeroState != .none || state.actionableCount == 0 {
             zeroContent
