@@ -111,15 +111,17 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     /// configuration file. So Integrations reported "no herdr" to everyone,
     /// including people with herdr running, because Allward had never looked.
     ///
-    /// A herdr server on this Mac is the ordinary case, so that is tried
-    /// without being asked. A Room that names a host still wins, because that
-    /// is a deliberate statement about where the panes are.
+    /// So the running processes are asked instead: `herdr --remote <host>` in a
+    /// pane names the host, and a local `herdr server` names this machine. A
+    /// Room that declares a host still wins, because that is deliberate.
     private static func makeAdapter(for configuration: Configuration) -> any MultiplexerAdapter {
         let declared = configuration.rooms
             .filter { !$0.adapterServers.isEmpty }
             .flatMap { $0.hostAliases }
             .first
-        let host = declared ?? HostAlias(rawValue: "localhost")
+        guard let host = declared ?? HerdrDiscovery.attachedHost() else {
+            return NoMultiplexerAdapter()
+        }
         guard let endpoint = HerdrProcessExecutor.endpoint(host: host) else {
             return NoMultiplexerAdapter()
         }

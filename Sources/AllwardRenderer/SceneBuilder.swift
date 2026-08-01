@@ -399,12 +399,22 @@ public struct SceneBuilder: Sendable {
         return (foreground: theme.meetingContrast(front, on: back), background: back)
     }
 
+    /// Whether to draw a cluster from a colour font or a text font.
+    ///
+    /// U+FE0F used to be taken as proof of an emoji on its own. It is not: it
+    /// asks for the emoji *form* of a character that has one. herdr marks a
+    /// finished agent with `U+2713 U+FE0F`, and U+2713 has no emoji form at
+    /// all, so this sent a plain check mark to the colour path, no colour font
+    /// covered it, and the cell came out empty.
     private func glyphPresentation(_ text: String) -> GlyphPresentation {
         let scalars = text.unicodeScalars
         if scalars.contains(where: { $0.value == 0xFE0E }) {
             return .monochrome
         }
-        if scalars.contains(where: { $0.value == 0xFE0F || $0.properties.isEmojiPresentation }) {
+        if scalars.contains(where: { $0.value == 0xFE0F }) {
+            return scalars.first?.properties.isEmoji == true ? .colorEmoji : .monochrome
+        }
+        if scalars.contains(where: { $0.properties.isEmojiPresentation }) {
             return .colorEmoji
         }
         return .monochrome

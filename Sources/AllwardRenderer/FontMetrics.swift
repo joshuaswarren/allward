@@ -110,12 +110,32 @@ public enum FontMetrics {
         )
     }
 
+    /// A cluster with its form-selectors removed, when they cannot be drawn.
+    ///
+    /// A variation selector picks a form; it is not itself a glyph, and no text
+    /// font has one. Left in the string it made the coverage check fail, so a
+    /// perfectly ordinary character was replaced or dropped. Kept only where it
+    /// does real work: choosing the colour form of something that has one.
+    static func drawableForm(of grapheme: String) -> String {
+        var scalars = grapheme.unicodeScalars
+        guard scalars.contains(where: { $0.value == 0xFE0E || $0.value == 0xFE0F })
+        else { return grapheme }
+        if scalars.contains(where: { $0.value == 0xFE0F }),
+            scalars.first?.properties.isEmoji == true
+        {
+            return grapheme
+        }
+        scalars.removeAll { $0.value == 0xFE0E || $0.value == 0xFE0F }
+        return String(scalars)
+    }
+
     static func resolvedGlyphFont(
         metrics: CellMetrics,
         grapheme: String,
         bold: Bool,
         italic: Bool
     ) -> ResolvedGlyphFont {
+        let grapheme = drawableForm(of: grapheme)
         let baseFont = baseFont(metrics: metrics)
         let cascadedFont = cascadingFont(baseFont: baseFont, grapheme: grapheme)
         let hasCoverage = font(cascadedFont, covers: grapheme)
