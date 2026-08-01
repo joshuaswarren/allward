@@ -15,8 +15,9 @@ import Foundation
 /// host in a Room is a deliberate statement.
 public enum HerdrDiscovery {
     /// The host a running herdr client or server is attached to.
-    public static func attachedHost() -> HostAlias? {
-        attachedHost(processTable: processTable())
+    public static func attachedHost() async -> HostAlias? {
+        let table = await processTable()
+        return attachedHost(processTable: table)
     }
 
     static func attachedHost(processTable: String) -> HostAlias? {
@@ -52,16 +53,18 @@ public enum HerdrDiscovery {
         return name == "herdr"
     }
 
-    static func processTable() -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-axo", "args="]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do { try process.run() } catch { return "" }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
+    static func processTable() async -> String {
+        await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-axo", "args="]
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = Pipe()
+            do { try process.run() } catch { return "" }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
+        }.value
     }
 }

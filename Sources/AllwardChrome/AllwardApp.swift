@@ -33,12 +33,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     private func bootstrap() async {
         let configurationURL = AllwardPaths.configurationFile()
-        let configuration = Self.loadOrSeedConfiguration(at: configurationURL)
+        let configuration = await Self.loadOrSeedConfiguration(at: configurationURL)
 
         let roomStore = RoomStore(rooms: configuration.rooms)
         let surfaces = SurfaceStore(clock: SystemClock())
-        let adapter = Self.makeAdapter(for: configuration)
-
+        let adapter = await Self.makeAdapter(for: configuration)
         let model = AppModel(
             configuration: configuration, roomStore: roomStore, surfaces: surfaces,
             adapter: adapter)
@@ -70,22 +69,26 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         guard model.configuration.mcpEnabled else { return }
         let host = ControlSocketHost()
         socketHost = host
-        do {
-            try host.start(handler: model.control, at: ControlSocketHost.defaultPath())
-        } catch {
-            NSLog("Allward: the app control socket could not start: \(error)")
+        Task.detached(priority: .userInitiated) {
+            do {
+                try host.start(handler: model.control, at: ControlSocketHost.defaultPath())
+            } catch {
+                NSLog("Allward: the app control socket could not start: \(error)")
+            }
         }
     }
 
 
     /// A first run must land in a usable app, so a missing configuration file is
     /// seeded with the validated defaults rather than treated as an error.
-    private static func loadOrSeedConfiguration(at url: URL) -> Configuration {
-        if let existing = try? Configuration.load(from: url) { return existing }
+    private static func loadOrSeedConfiguration(at url: URL) async -> Configuration {
+        if let existing = try? await Configuration.loadOffMainThread(from: url) { return existing }
         let defaults = Configuration()
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return (try? defaults.write(to: url)) ?? defaults
+        await Task.detached(priority: .userInitiated) {
+            try? FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }.value
+        return (try? await defaults.writeOffMainThread(to: url)) ?? defaults
     }
 
     /// Live reload is file-event driven; nothing polls the configuration path.
@@ -114,12 +117,18 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     /// So the running processes are asked instead: `herdr --remote <host>` in a
     /// pane names the host, and a local `herdr server` names this machine. A
     /// Room that declares a host still wins, because that is deliberate.
-    private static func makeAdapter(for configuration: Configuration) -> any MultiplexerAdapter {
+    private static func makeAdapter(for configuration: Configuration) async -> any MultiplexerAdapter {
         let declared = configuration.rooms
             .filter { !$0.adapterServers.isEmpty }
             .flatMap { $0.hostAliases }
             .first
-        guard let host = declared ?? HerdrDiscovery.attachedHost() else {
+        let host: HostAlias?
+        if let declared {
+            host = declared
+        } else {
+            host = await HerdrDiscovery.attachedHost()
+        }
+        guard let host else {
             return NoMultiplexerAdapter()
         }
         guard let endpoint = HerdrProcessExecutor.endpoint(host: host) else {
@@ -417,8 +426,6 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(.separator())
         add(viewMenu, "Next tab", #selector(nextTab(_:)), Shortcut.nextTab)
         add(viewMenu, "Previous tab", #selector(previousTab(_:)), Shortcut.previousTab)
-        add(viewMenu, "Next tab ", #selector(nextTab(_:)), Shortcut.nextTabBracket)
-        add(viewMenu, "Previous tab ", #selector(previousTab(_:)), Shortcut.previousTabBracket)
         for index in 1 ... 9 {
             let title = index == 9 ? "Last tab" : "Tab \(index)"
             add(viewMenu, title, #selector(selectNumberedTab(_:)), Shortcut.selectTab(index))

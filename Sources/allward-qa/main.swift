@@ -191,16 +191,6 @@ func run() async throws {
         }
 
         try renderSurface(
-            "permission-\(suffix)", size: CGSize(width: 640, height: 380), palette: palette,
-            into: directory
-        ) {
-            PermissionView(
-                state: .fixture(), onDecision: { _ in }, onAcknowledgeLocally: {},
-                onCancelDispatch: {}, onLookupOutcome: {}, onRetry: {},
-                dismissAndRestoreSource: {})
-        }
-
-        try renderSurface(
             "dictation-\(suffix)", size: CGSize(width: 640, height: 300), palette: palette,
             into: directory
         ) {
@@ -209,13 +199,6 @@ func run() async throws {
                 onInject: {}, cancelAndRestoreLockedTarget: {})
         }
 
-        try renderSurface(
-            "concierge-\(suffix)", size: CGSize(width: 700, height: 460), palette: palette,
-            into: directory
-        ) {
-            ConciergeView(
-                state: .fixture(), onDryRun: {}, onConfirm: {}, dismissAndRestoreSource: {})
-        }
 
         try renderSurface(
             "diagnostics-\(suffix)", size: CGSize(width: 860, height: 620), palette: palette,

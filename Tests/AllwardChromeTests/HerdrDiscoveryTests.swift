@@ -2,7 +2,8 @@ import AllwardCore
 import XCTest
 
 @testable import AllwardChrome
-
+@testable import AllwardHerdr
+@testable import AllwardMultiplexer
 /// Allward has to notice the herdr you are already using.
 ///
 /// The adapter was built only from a Room's declared adapter server, and there

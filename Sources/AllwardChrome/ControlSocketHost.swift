@@ -28,9 +28,11 @@ public final class ControlSocketHost: ControlSocketServing, @unchecked Sendable 
 
     public func start(handler: any ControlRequestHandling, at path: String) throws {
         let directory = (path as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(
-            atPath: directory, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
+        try DispatchQueue.global(qos: .userInitiated).sync {
+            try FileManager.default.createDirectory(
+                atPath: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+        }
         unlink(path)
 
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -80,6 +82,12 @@ public final class ControlSocketHost: ControlSocketServing, @unchecked Sendable 
     private func accept(handler: any ControlRequestHandling) {
         let client = Foundation.accept(listeningDescriptor, nil, nil)
         guard client >= 0 else { return }
+        let flags = fcntl(client, F_GETFL, 0)
+        if flags >= 0 {
+            _ = fcntl(client, F_SETFL, flags | O_NONBLOCK)
+        }
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let connection = DispatchSource.makeReadSource(fileDescriptor: client, queue: queue)
         let buffer = LineBuffer(limit: maximumLineBytes)
         connection.setEventHandler { [weak self] in
@@ -104,12 +112,41 @@ public final class ControlSocketHost: ControlSocketServing, @unchecked Sendable 
         guard let request = try? decoder.decode(ControlRequest.self, from: Data(line)) else {
             return
         }
-        Task {
+        Task.detached(priority: .userInitiated) {
             let response = await handler.handle(request)
             guard var payload = try? encoder.encode(response) else { return }
             payload.append(0x0A)
-            payload.withUnsafeBytes { raw in
-                _ = write(client, raw.baseAddress, raw.count)
+            Self.sendResponse(payload, to: client)
+        }
+    }
+
+    private static func sendResponse(_ payload: Data, to client: Int32) {
+        payload.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            var totalWritten = 0
+            let count = raw.count
+            let deadline = Date().addingTimeInterval(5.0)
+
+            while totalWritten < count && Date() < deadline {
+                let written = write(client, base.advanced(by: totalWritten), count - totalWritten)
+                if written > 0 {
+                    totalWritten += written
+                } else if written == 0 {
+                    break
+                } else {
+                    let err = errno
+                    if err == EAGAIN || err == EWOULDBLOCK {
+                        var pfd = pollfd(fd: client, events: Int16(POLLOUT), revents: 0)
+                        let pollRes = poll(&pfd, 1, 100)
+                        if pollRes <= 0 && (pollRes < 0 && errno != EINTR) {
+                            break
+                        }
+                    } else if err == EINTR {
+                        continue
+                    } else {
+                        break
+                    }
+                }
             }
         }
     }

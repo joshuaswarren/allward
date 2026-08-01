@@ -61,10 +61,6 @@ extension MainWindowController {
                         presentBoard()
                     }
                 },
-                onPublisherDecision: { [weak self] row, decision in
-                    self?.model.lastActionMessage =
-                        "Publisher decision “\(decision)” for \(row.sessionTitle) needs its publisher connection."
-                },
                 onBoardAction: { [weak self] action in self?.performBoardAction(action) },
                 onDismiss: { [weak self] in self?.dismissSummonedSurface() }
             )
@@ -89,9 +85,6 @@ extension MainWindowController {
                     guard let self else { return }
                     dismissSummonedSurface()
                     Task { await openDigestSource(index, model: model) }
-                },
-                onCancelPreparation: { [weak self] in
-                    self?.model.lastActionMessage = "Digest preparation has no active cancellable operation."
                 },
                 onAcknowledge: { [weak self] in
                     guard let self else { return }
@@ -230,12 +223,6 @@ extension MainWindowController {
             presentDiagnostics()
         case "choose-adapter":
             presentSettings()
-        case "show-all-sessions":
-            model.lastActionMessage = nil
-        case "cancel-inventory":
-            model.lastActionMessage = "No inventory operation is currently cancellable."
-        case "retry-source", "reconnect-source":
-            model.lastActionMessage = "The source owns reconnection and will publish its next state."
         default:
             model.lastActionMessage = "Board action \(action) is not available."
         }
@@ -249,14 +236,13 @@ extension MainWindowController {
         case "pane.split-right": Task { await model.splitFocusedPane(.horizontal) }
         case "pane.split-down": Task { await model.splitFocusedPane(.vertical) }
         case "host.connect": presentHostPicker()
-        case "surface.board", "surface.router": presentBoard()
+        case "surface.board": presentBoard()
         case "surface.digest": presentDigest()
         case "surface.command-palette": presentCommandPalette()
         case "room.switcher": presentRoomSwitcher()
         case "teleport": Task { await model.teleportToRoutedDestination() }
         case "settings.open": presentSettings()
         case "diagnostics.open": presentDiagnostics()
-        case "pane.focus": model.lastActionMessage = "Use ⌘⌥ plus an arrow key to choose a focus direction."
         default: model.lastActionMessage = "Command \(command.title) is no longer available."
         }
     }

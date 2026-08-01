@@ -8,20 +8,17 @@ public struct DigestView: View {
 
     public let state: DigestViewState
     public let onOpenSource: @MainActor (RecordID) -> Void
-    public let onCancelPreparation: @MainActor () -> Void
     public let onAcknowledge: @MainActor () -> Void
     public let onDismiss: @MainActor () -> Void
 
     public init(
         state: DigestViewState,
         onOpenSource: @escaping @MainActor (RecordID) -> Void = { _ in },
-        onCancelPreparation: @escaping @MainActor () -> Void = {},
         onAcknowledge: @escaping @MainActor () -> Void = {},
         onDismiss: @escaping @MainActor () -> Void = {}
     ) {
         self.state = state
         self.onOpenSource = onOpenSource
-        self.onCancelPreparation = onCancelPreparation
         self.onAcknowledge = onAcknowledge
         self.onDismiss = onDismiss
     }
@@ -115,11 +112,10 @@ public struct DigestView: View {
     @ViewBuilder
     private var stateDetail: some View {
         switch state.state {
-        case .preparing(let step, let cancellable):
+        case .preparing(let step):
             LoadingStateView(
                 target: state.subject.target,
-                step: step,
-                cancel: cancellable ? onCancelPreparation : nil)
+                step: step)
         case .readyDeterministic:
             digestActions
         case .readyRewritten(let prose):

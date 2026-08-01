@@ -34,6 +34,11 @@ public actor HerdrAdapter: MultiplexerAdapter {
     private var eventTask: Task<Void, Never>?
     private var started = false
 
+    public var retainedSnapshotsCount: Int { retainedSnapshots.count }
+    public var selectionsCount: Int { selections.count }
+    public var failedRoutesCount: Int { failedRoutes.count }
+    public var paneRevisionsCount: Int { paneRevisions.count }
+
     public init(
         client: HerdrSocketClient,
         availability: HerdrRouteAvailability = HerdrRouteAvailability(),
@@ -80,6 +85,12 @@ public actor HerdrAdapter: MultiplexerAdapter {
         eventTask = nil
         started = false
         currentHealth = .none
+        currentSessions = []
+        agentSessionIDs = []
+        selections = [:]
+        failedRoutes = [:]
+        retainedSnapshots = [:]
+        paneRevisions = [:]
         continuation.yield(.health(.none))
     }
 
@@ -97,6 +108,7 @@ public actor HerdrAdapter: MultiplexerAdapter {
             let mapped = mapper.map(snapshot: snapshot, host: endpoint.host)
             currentSessions = mapped.sessions
             agentSessionIDs = mapped.agentSessionIDs
+            pruneStaleSessions()
             availability.socketAvailable = true
             availability.snapshotReadAvailable = client.supportsPaneRead
             currentHealth = .available
@@ -363,6 +375,15 @@ public actor HerdrAdapter: MultiplexerAdapter {
             retryability: retryability,
             recovery: "Retry the herdr operation or use the disclosed fallback route"
         )
+    }
+    private func pruneStaleSessions() {
+        let validSessionIDs = Set(currentSessions.map(\.id))
+        let validPaneIDs = Set(currentSessions.map(\.paneID))
+
+        selections = selections.filter { validSessionIDs.contains($0.key) }
+        failedRoutes = failedRoutes.filter { validSessionIDs.contains($0.key) }
+        retainedSnapshots = retainedSnapshots.filter { validSessionIDs.contains($0.key) }
+        paneRevisions = paneRevisions.filter { validPaneIDs.contains($0.key) }
     }
 }
 

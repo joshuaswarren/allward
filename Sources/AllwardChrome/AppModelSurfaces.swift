@@ -267,7 +267,7 @@ extension AppModel {
         var updated = configuration
         guard apply(update, to: &updated) else { return }
         do {
-            let written = try updated.write(to: AllwardPaths.configurationFile())
+            let written = try await updated.writeOffMainThread(to: AllwardPaths.configurationFile())
             lastActionMessage = nil
             await applyConfiguration(written)
         } catch {
@@ -440,9 +440,6 @@ extension AppModel {
                 configuration.rooms[index].notificationRules.enabledEarcons.remove(earcon)
             }
             return true
-        case .previewRoomEarcon:
-            lastActionMessage = "Earcon preview is unavailable until an audio output is active."
-            return false
         case let .selectTheme(themeID):
             guard ThemeCatalog.theme(named: themeID) != nil else {
                 lastActionMessage = "The selected terminal theme is not available."
@@ -459,7 +456,7 @@ extension AppModel {
             }
             return true
         case let .setKeyShortcut(keyID, shortcut):
-            guard keyID == "speech.dictation" else {
+            guard keyID == "speech.dictation-key" else {
                 lastActionMessage = "That shortcut is fixed by the application menu."
                 return false
             }

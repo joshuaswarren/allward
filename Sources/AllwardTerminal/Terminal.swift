@@ -473,9 +473,14 @@ public final class Terminal {
         grid.setCurrentAttributes(current)
     }
 
+    /// Tab motion, with the repeat count bounded by the row.
+    ///
+    /// `ESC [ 9223372036854775807 I` looped that many times, pinning the
+    /// session actor forever. There are at most `columns` tab stops to cross,
+    /// so anything beyond that is the same answer reached more slowly.
     private func moveTabs(forward: Bool, count: Int) {
         var column = grid.cursor.column
-        for _ in 0..<max(1, count) {
+        for _ in 0 ..< min(max(1, count), max(1, geometry.columns)) {
             if forward { column = tabStops.filter { $0 > column }.min() ?? geometry.columns - 1 }
             else { column = tabStops.filter { $0 < column }.max() ?? 0 }
         }

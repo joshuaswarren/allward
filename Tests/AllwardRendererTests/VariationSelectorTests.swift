@@ -95,6 +95,28 @@ final class VariationSelectorTests: XCTestCase {
         XCTAssertGreaterThan(inked, 0.005, "U+2714 U+FE0E drew nothing.")
     }
 
+    /// The backstop: whatever the cause, a printable character draws something.
+    ///
+    /// Three different faults have produced an empty cell, and each was found
+    /// only because a person noticed an absence. So the outcome is asserted
+    /// rather than the causes enumerated - a character no font on the machine
+    /// covers must still leave ink, even if that ink is the replacement mark.
+    @MainActor
+    func testACharacterNoFontCoversStillDrawsSomething() async throws {
+        // Unassigned in a private use plane; nothing has a glyph for it.
+        let inked = try await inkFraction("\u{F0000}")
+        XCTAssertGreaterThan(
+            inked, 0.001,
+            "An uncoverable character drew nothing. A cell must never be silently empty.")
+    }
+
+    /// A space is legitimately empty and must stay that way.
+    @MainActor
+    func testASpaceDrawsNothing() async throws {
+        let inked = try await inkFraction(" ")
+        XCTAssertEqual(inked, 0, accuracy: 0.0005, "A space must not draw a replacement mark.")
+    }
+
     /// Real emoji keep their colour form.
     func testAnEmojiKeepsItsSelector() {
         XCTAssertEqual(FontMetrics.drawableForm(of: "\u{2764}\u{FE0F}"), "\u{2764}\u{FE0F}")

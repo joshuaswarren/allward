@@ -239,21 +239,6 @@ public enum SurfaceProjection {
         fallbackTint: TokenColor
     ) -> BoardViewState.Row {
         let publisher = row.publisher
-        let permissionDecision = publisher.flatMap { publisher -> BoardViewState.PermissionDecision? in
-            guard row.state == .needsInput || publisher.requestVerb != nil else { return nil }
-            return BoardViewState.PermissionDecision(
-                publisher: publisher.publisherName ?? publisher.publisherID.shortLabel,
-                state: .ready,
-                options: publisher.options.map {
-                    PermissionOption(
-                        id: $0.id,
-                        verb: $0.label,
-                        isLeastDestructive: $0.isLeastDestructive
-                    )
-                },
-                expiryLabel: publisher.expiry.map { expiryLabel($0, now: now) }
-            )
-        }
         return BoardViewState.Row(
             id: row.id,
             roomName: room?.name ?? "Room \(row.roomID.shortLabel)",
@@ -280,8 +265,6 @@ public enum SurfaceProjection {
             freshnessBucket: row.freshness.bucket(at: now),
             destinationKey: row.destinationKey,
             provenanceLabel: sourceLabel(row.source),
-            permissionDecision: permissionDecision,
-            publisherDecisionActionable: row.approvalActionAvailable,
             locallyAcknowledgeable: row.publisher == nil && row.isActionable
         )
     }
@@ -428,7 +411,7 @@ public enum SurfaceProjection {
     private static func digestState(_ state: DigestState, facts: [DigestFact]) -> DigestViewState.State {
         switch state {
         case .preparing:
-            .preparing(step: "Preparing deterministic facts", cancellable: false)
+            .preparing(step: "Preparing deterministic facts")
         case .readyDeterministic:
             .readyDeterministic
         case .focusFiltered:
@@ -880,7 +863,6 @@ public enum SurfaceProjection {
                 paletteCommand("pane.close", "Close pane", nil, Shortcut.closePane.display, enabled: canClose),
                 paletteCommand("pane.split-right", "Split right", nil, Shortcut.splitRight.display, enabled: canSplit),
                 paletteCommand("pane.split-down", "Split down", nil, Shortcut.splitDown.display, enabled: canSplit),
-                paletteCommand("pane.focus", "Focus pane", nil, Shortcut.focusPane),
             ]),
             CommandGroup(id: "connections", title: "Connections", commands: [
                 paletteCommand(

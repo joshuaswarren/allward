@@ -172,6 +172,18 @@ public struct Configuration: Hashable, Sendable {
     return configuration
   }
 
+  /// Reads the configuration off the main thread.
+  ///
+  /// The synchronous form is reached from bootstrap, the reload chord and every
+  /// settings save, so a slow or stuck volume beachballed the app. The blocking
+  /// form stays for tests and for callers already off-main; anything on the
+  /// main actor must use this one.
+  public static func loadOffMainThread(from url: URL) async throws -> Configuration {
+    try await Task.detached(priority: .userInitiated) {
+      try Self.load(from: url)
+    }.value
+  }
+
   public func validate() throws {
     try require(!terminal.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 key: "terminal.font-family", cause: "Font family cannot be empty")
@@ -319,6 +331,15 @@ public struct Configuration: Hashable, Sendable {
     written.sourceRevision = SourceRevision(path: url.standardizedFileURL.path, data: outputData)
     written.sourceDocument = outputDocument
     return written
+  }
+
+  /// Writes the configuration off the main thread, keeping the atomic-write
+  /// and source-revision-conflict semantics of the blocking form exactly.
+  public func writeOffMainThread(to url: URL) async throws -> Configuration {
+    let configuration = self
+    return try await Task.detached(priority: .userInitiated) {
+      try configuration.write(to: url)
+    }.value
   }
 
   private static func from(document: TOMLDocument) throws -> Configuration {
@@ -801,7 +822,7 @@ public actor ConfigurationReloader {
 
   private func handleFileEvent() {
     let events = fileSource?.data ?? []
-    reload()
+    Task { await reload() }
     guard events.contains(.rename) || events.contains(.delete) else { return }
     fileCancellationPending = true
     fileSource?.cancel()
@@ -810,7 +831,7 @@ public actor ConfigurationReloader {
   }
 
   private func handleDirectoryEvent() {
-    reload()
+    Task { await reload() }
     guard fileSource == nil, !fileCancellationPending else { return }
     do {
       try installFileWatch()
@@ -850,9 +871,9 @@ public actor ConfigurationReloader {
     continuations.removeValue(forKey: id)
   }
 
-  private func reload() {
+  private func reload() async {
     do {
-      var loaded = try Configuration.load(from: url)
+      var loaded = try await Configuration.loadOffMainThread(from: url)
       var comparableLoaded = loaded
       var comparableLastGood = lastGood
       comparableLoaded.generation = .initial

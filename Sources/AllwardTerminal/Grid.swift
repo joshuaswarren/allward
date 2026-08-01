@@ -195,19 +195,32 @@ struct Grid: Sendable {
         else { screen.cursor.row = max(0, screen.cursor.row - 1) }
     }
 
+    /// Cursor motion, clamped before the addition rather than after.
+    ///
+    /// A CSI parameter is whatever the program sent, up to `Int.max`, and
+    /// `cursor.row + delta` overflowed and trapped before the clamp could run.
+    /// One escape sequence killed the terminal, from any program - a corrupt
+    /// download printed to the screen would do it. The distance available is
+    /// bounded first, so the sum cannot leave the grid.
     mutating func moveVertical(_ delta: Int, originMode: Bool) {
         var screen = takeActive()
         defer { putActive(screen) }
         let lower = originMode ? screen.scrollTop : 0
         let upper = originMode ? screen.scrollBottom : geometry.rows - 1
-        screen.cursor.row = min(upper, max(lower, screen.cursor.row + delta))
+        let row = screen.cursor.row
+        let bounded = delta >= 0 ? min(delta, max(0, upper - row)) : max(delta, min(0, lower - row))
+        screen.cursor.row = min(upper, max(lower, row + bounded))
         screen.cursor.wrapPending = false
     }
 
     mutating func moveHorizontal(_ delta: Int) {
         let maximumColumn = geometry.columns - 1
         updateCursor {
-            $0.column = min(maximumColumn, max(0, $0.column + delta))
+            let column = $0.column
+            let bounded = delta >= 0
+                ? min(delta, max(0, maximumColumn - column))
+                : max(delta, min(0, -column))
+            $0.column = min(maximumColumn, max(0, column + bounded))
             $0.wrapPending = false
         }
     }
@@ -218,7 +231,8 @@ struct Grid: Sendable {
         let base = originMode ? screen.scrollTop : 0
         let lower = originMode ? screen.scrollTop : 0
         let upper = originMode ? screen.scrollBottom : geometry.rows - 1
-        screen.cursor.row = min(upper, max(lower, base + max(0, row - 1)))
+        let offset = min(max(0, upper - base), max(0, row - 1))
+        screen.cursor.row = min(upper, max(lower, base + offset))
         screen.cursor.column = min(geometry.columns - 1, max(0, column - 1))
         screen.cursor.wrapPending = false
     }
@@ -300,7 +314,11 @@ struct Grid: Sendable {
     mutating func eraseCharacters(_ count: Int, selective: Bool, attributes: UInt32) {
         var screen = takeActive()
         defer { putActive(screen) }
-        let end = min(geometry.columns - 1, screen.cursor.column + max(1, count) - 1)
+        // `column + count` overflowed on a maximised CSI parameter, before the
+        // clamp that was meant to contain it could run.
+        let column = screen.cursor.column
+        let available = max(0, geometry.columns - column)
+        let end = column + min(max(1, count), available) - 1
         erase(
             &screen,
             row: screen.cursor.row,

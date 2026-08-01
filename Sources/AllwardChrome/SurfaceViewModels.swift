@@ -1,22 +1,9 @@
-import AllwardConcierge
 import AllwardCore
 import AllwardDesign
 import AllwardSpeech
 import AllwardSurfaces
 import Foundation
 
-public enum PermissionDecisionState: Hashable, Sendable {
-    case ready
-    case dispatching(decision: String)
-    case accepted
-    case committed
-    case rejected(reason: String)
-    case cancelled
-    case acknowledged(outcome: String, receipt: String)
-    case outcomeUnknown(transaction: String)
-
-    public var mayRenderGranted: Bool { self == .committed }
-}
 
 public struct BoardViewState: Hashable, Sendable {
     public enum ContentState: String, Hashable, Sendable, CaseIterable {
@@ -31,30 +18,6 @@ public struct BoardViewState: Hashable, Sendable {
         case maximumContent
     }
 
-    public struct PermissionDecision: Hashable, Sendable {
-        public var publisher: String
-        public var state: PermissionDecisionState
-        public var options: [PermissionOption]
-        public var effectReceipt: String?
-        public var expiryLabel: String?
-        public var cancellable: Bool
-
-        public init(
-            publisher: String,
-            state: PermissionDecisionState,
-            options: [PermissionOption],
-            effectReceipt: String? = nil,
-            expiryLabel: String? = nil,
-            cancellable: Bool = false
-        ) {
-            self.publisher = publisher
-            self.state = state
-            self.options = options
-            self.effectReceipt = effectReceipt
-            self.expiryLabel = expiryLabel
-            self.cancellable = cancellable
-        }
-    }
 
     public struct Row: Identifiable, Hashable, Sendable {
         public var id: RecordID
@@ -71,8 +34,6 @@ public struct BoardViewState: Hashable, Sendable {
         public var freshnessBucket: FreshnessBucket
         public var destinationKey: String?
         public var provenanceLabel: String
-        public var permissionDecision: PermissionDecision?
-        public var publisherDecisionActionable: Bool
         public var locallyAcknowledgeable: Bool
 
         public init(
@@ -90,8 +51,6 @@ public struct BoardViewState: Hashable, Sendable {
             freshnessBucket: FreshnessBucket,
             destinationKey: String?,
             provenanceLabel: String,
-            permissionDecision: PermissionDecision? = nil,
-            publisherDecisionActionable: Bool = false,
             locallyAcknowledgeable: Bool = false
         ) {
             self.id = id
@@ -108,8 +67,6 @@ public struct BoardViewState: Hashable, Sendable {
             self.freshnessBucket = freshnessBucket
             self.destinationKey = destinationKey
             self.provenanceLabel = provenanceLabel
-            self.permissionDecision = permissionDecision
-            self.publisherDecisionActionable = publisherDecisionActionable
             self.locallyAcknowledgeable = locallyAcknowledgeable
         }
     }
@@ -199,14 +156,6 @@ public struct BoardViewState: Hashable, Sendable {
                 source: "herdr", freshnessBucket: "12s ago"),
             openLoopCount: 3, freshnessAge: 12, freshnessBucket: .seconds, destinationKey: "1",
             provenanceLabel: "herdr publisher",
-            permissionDecision: PermissionDecision(
-                publisher: "herdr", state: .ready,
-                options: [
-                    PermissionOption(id: "allow-once", verb: "Allow once", isLeastDestructive: false),
-                    PermissionOption(id: "deny", verb: "Deny", isLeastDestructive: true),
-                ],
-                expiryLabel: "Expires in 48s"),
-            publisherDecisionActionable: true,
             locallyAcknowledgeable: true)
         let tests = Row(
             id: fixtureRecordID(2), roomName: "Commerce", roomTint: commerceTint,
@@ -290,7 +239,6 @@ public struct BoardViewState: Hashable, Sendable {
                     hostWorkspace.rows = hostWorkspace.rows.map { row in
                         var row = row
                         row.openLoopCount = 0
-                        row.permissionDecision = nil
                         row.locallyAcknowledgeable = false
                         return row
                     }
@@ -454,7 +402,7 @@ public struct RouterViewState: Hashable, Sendable {
 
 public struct DigestViewState: Hashable, Sendable {
     public enum State: Hashable, Sendable {
-        case preparing(step: String, cancellable: Bool)
+        case preparing(step: String)
         case readyDeterministic
         case readyRewritten(prose: String)
         case focusFiltered
@@ -582,7 +530,7 @@ public struct DigestViewState: Hashable, Sendable {
             "Read \(source)"
         } else { nil }
         let recovery: String? = if case .partialSourceError(_, let cause) = state { cause } else { nil }
-        let boundedStep: String? = if case .preparing(let step, _) = state { step } else { nil }
+        let boundedStep: String? = if case .preparing(let step) = state { step } else { nil }
         let presentation = ComposedPresentation(
             state: presentationState,
             usability: presentationState == .loading ? .closedAbsent : .usableActionCapable,
@@ -597,86 +545,6 @@ public struct DigestViewState: Hashable, Sendable {
     }
 }
 
-public struct PermissionOption: Identifiable, Hashable, Sendable {
-    public var id: String
-    public var verb: String
-    public var isLeastDestructive: Bool
-
-    public init(id: String, verb: String, isLeastDestructive: Bool) {
-        self.id = id
-        self.verb = verb
-        self.isLeastDestructive = isLeastDestructive
-    }
-}
-
-public enum PermissionPhase: Hashable, Sendable {
-    case ready
-    case dispatching(decision: String, cancellable: Bool)
-    case accepted
-    case committed(receipt: String)
-    case rejected(reason: String)
-    case cancelled
-    case acknowledged(outcome: String, receipt: String)
-    case outcomeUnknown(transaction: String)
-    case stale(reason: String)
-    case error(reason: String, recovery: String)
-
-    public var mayRenderGranted: Bool {
-        if case .committed = self { true } else { false }
-    }
-}
-
-public struct PermissionViewState: Hashable, Sendable {
-    public var publisher: String
-    public var target: String
-    public var verb: String
-    public var expires: String?
-    public var options: [PermissionOption]
-    public var localAcknowledgmentAvailable: Bool
-    public var phase: PermissionPhase
-    public var decisionEnabled: Bool
-    public var presentation: ComposedPresentation
-    public var subject: PresentationSubject
-
-    public init(
-        publisher: String,
-        target: String,
-        verb: String,
-        expires: String?,
-        options: [PermissionOption],
-        localAcknowledgmentAvailable: Bool,
-        phase: PermissionPhase,
-        decisionEnabled: Bool,
-        presentation: ComposedPresentation,
-        subject: PresentationSubject
-    ) {
-        self.publisher = publisher
-        self.target = target
-        self.verb = verb
-        self.expires = expires
-        self.options = options
-        self.localAcknowledgmentAvailable = localAcknowledgmentAvailable
-        self.phase = phase
-        self.decisionEnabled = decisionEnabled
-        self.presentation = presentation
-        self.subject = subject
-    }
-
-    public static func fixture(phase: PermissionPhase = .ready) -> PermissionViewState {
-        PermissionViewState(
-            publisher: "herdr", target: "Commerce / Checkout orchestration",
-            verb: "Allow file write", expires: "Expires in 48s",
-            options: [
-                PermissionOption(id: "allow-once", verb: "Allow once", isLeastDestructive: false),
-                PermissionOption(id: "deny", verb: "Deny", isLeastDestructive: true),
-            ],
-            localAcknowledgmentAvailable: true, phase: phase, decisionEnabled: true,
-            presentation: ComposedPresentation(state: .needsInput, usability: .usableActionCapable),
-            subject: PresentationSubject(
-                componentName: "Permission", target: "Checkout orchestration",
-                verb: "Allow file write", source: "herdr"))
-    }
-}
 
 public struct PaletteCommand: Identifiable, Hashable, Sendable {
     public var id: String
@@ -781,49 +649,6 @@ public struct DictationViewState: Hashable, Sendable {
     }
 }
 
-public enum ConciergeMode: String, Hashable, Sendable, CaseIterable {
-    case install
-    case remove
-}
-
-public struct ConciergeViewState: Hashable, Sendable {
-    public var presentation: ComposedPresentation
-    public var subject: PresentationSubject
-    public var shell: String
-    public var laneState: ShellIntegrationLaneState
-    public var plan: ShellIntegrationPlan?
-    public var mode: ConciergeMode
-    public var isApplying: Bool
-
-    public init(
-        presentation: ComposedPresentation,
-        subject: PresentationSubject,
-        shell: String,
-        laneState: ShellIntegrationLaneState,
-        plan: ShellIntegrationPlan?,
-        mode: ConciergeMode,
-        isApplying: Bool
-    ) {
-        self.presentation = presentation
-        self.subject = subject
-        self.shell = shell
-        self.laneState = laneState
-        self.plan = plan
-        self.mode = mode
-        self.isApplying = isApplying
-    }
-
-    public static func fixture(mode: ConciergeMode = .install) -> ConciergeViewState {
-        let recipe = ShellIntegrationRecipe.current
-        let plan = ShellIntegrationPlan(
-            recipeVersion: recipe.version, exactFile: "~/.zshrc", exactLine: recipe.rcLine,
-            snippetFile: "~/.config/allward/zsh-integration-v1.zsh", snippet: recipe.snippet)
-        return ConciergeViewState(
-            presentation: ComposedPresentation(state: .live, usability: .usableActionCapable),
-            subject: PresentationSubject(componentName: "Concierge", target: "zsh integration"),
-            shell: "zsh", laneState: .notInstalled, plan: plan, mode: mode, isApplying: false)
-    }
-}
 
 public enum SettingsTab: String, Identifiable, Hashable, Sendable, CaseIterable {
     case general
@@ -1019,7 +844,7 @@ public struct SettingsViewState: Hashable, Sendable {
                     id: "restore", label: "Restore windows", detail: nil,
                     value: .toggle(true), isEnabled: true),
                 GeneralSetting(
-                    id: "font-family", label: "Terminal font family", detail: nil,
+                    id: "terminal.font-family", label: "Terminal font family", detail: nil,
                     value: .text("JetBrains Mono"), isEnabled: true),
                 GeneralSetting(
                     id: "font-size", label: "Terminal font size", detail: nil,
@@ -1100,7 +925,7 @@ public struct SettingsViewState: Hashable, Sendable {
         KeySetting(id: "teleport", action: "Teleport", shortcut: Shortcut.teleport.display, isConfigurable: false),
         KeySetting(id: "settings", action: "Settings", shortcut: Shortcut.settings.display, isConfigurable: false),
         KeySetting(id: "diagnostics", action: "Diagnostics", shortcut: KeyChord("/", [.command, .shift]).display, isConfigurable: false),
-        KeySetting(id: "dictation", action: "Hold to dictate", shortcut: "fn", isConfigurable: true),
+        KeySetting(id: "speech.dictation-key", action: "Hold to dictate", shortcut: "fn", isConfigurable: true),
     ]
 }
 

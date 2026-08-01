@@ -95,16 +95,79 @@ private actor GlyphRasterizationQueue {
         let height = max(1, Int(metrics.cellHeight.rounded()))
         let bytesPerPixel = key.presentation == .monochrome ? 1 : 4
         let bytesPerRow = width * bytesPerPixel
+        var bytes = draw(
+            key: key, grapheme: key.grapheme, presentation: key.presentation,
+            width: width, height: height, bytesPerRow: bytesPerRow)
+
+        // A character that should be visible must never come out blank.
+        //
+        // Three separate causes have produced an empty cell: a colour path
+        // chosen for a character no colour font has, a variation selector left
+        // in the string so the coverage test rejected it, and a glyph missing
+        // from the chosen font. Each was found only because someone noticed
+        // something absent, which is the hardest kind of bug to see. So the
+        // outcome is checked rather than the causes enumerated: if a
+        // printable cluster produced no ink, draw it monochrome from whatever
+        // font the system says covers it, and failing that draw the
+        // replacement character. Something wrong is recoverable; nothing at
+        // all is not.
+        if Self.shouldBeVisible(key.grapheme), bytes.allSatisfy({ $0 == 0 }) {
+            if key.presentation != .monochrome {
+                bytes = draw(
+                    key: key, grapheme: key.grapheme, presentation: .monochrome,
+                    width: width, height: height, bytesPerRow: width)
+            }
+            if bytes.allSatisfy({ $0 == 0 }) {
+                bytes = draw(
+                    key: key, grapheme: "\u{FFFD}", presentation: .monochrome,
+                    width: width, height: height, bytesPerRow: width)
+            }
+            return GlyphRaster(
+                key: key, cellSpan: cellSpan, width: width, height: height,
+                bytesPerRow: width, bytes: Data(bytes))
+        }
+
+        return GlyphRaster(
+            key: key,
+            cellSpan: cellSpan,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            bytes: Data(bytes)
+        )
+    }
+
+    /// Whether a cluster is supposed to put ink on screen. Spaces and
+    /// zero-width formatting characters are legitimately empty.
+    static func shouldBeVisible(_ grapheme: String) -> Bool {
+        let scalars = grapheme.unicodeScalars
+        guard !scalars.isEmpty else { return false }
+        return scalars.contains { scalar in
+            if scalar.properties.isWhitespace { return false }
+            if scalar.properties.isDefaultIgnorableCodePoint { return false }
+            return scalar.value > 0x1F
+        }
+    }
+
+    private func draw(
+        key: GlyphAtlasKey,
+        grapheme requested: String,
+        presentation: GlyphPresentation,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int
+    ) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
         let resolvedGlyph = FontMetrics.resolvedGlyphFont(
             metrics: metrics,
-            grapheme: key.grapheme,
+            grapheme: requested,
             bold: key.bold,
             italic: key.italic
         )
         let font = resolvedGlyph.font
         let grapheme = resolvedGlyph.grapheme
         let isFallback = resolvedGlyph.isFallback
+
 
         bytes.withUnsafeMutableBytes { storage in
             guard let baseAddress = storage.baseAddress,
@@ -113,14 +176,14 @@ private actor GlyphRasterizationQueue {
                       width: width,
                       height: height,
                       bytesPerRow: bytesPerRow,
-                      presentation: key.presentation
+                      presentation: presentation
                   )
             else { return }
 
             var attributes: [NSAttributedString.Key: Any] = [
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
             ]
-            if key.presentation == .monochrome {
+            if presentation == .monochrome {
                 attributes[NSAttributedString.Key(kCTForegroundColorAttributeName as String)] = CGColor(
                     gray: 1,
                     alpha: 1
@@ -136,7 +199,7 @@ private actor GlyphRasterizationQueue {
                 grapheme: grapheme, isFallback: isFallback, lineWidth: lineWidth, width: width)
             switch fit {
             case .none:
-                let x = key.presentation == .colorEmoji
+                let x = presentation == .colorEmoji
                     ? max(0, (Double(width) - lineWidth) / 2) : 0
                 context.textPosition = CGPoint(x: x, y: CGFloat(height) - metrics.baseline)
                 CTLineDraw(line, context)
@@ -147,15 +210,7 @@ private actor GlyphRasterizationQueue {
                     line, fontAscent: fontAscent, width: width, height: height, in: context)
             }
         }
-
-        return GlyphRaster(
-            key: key,
-            cellSpan: cellSpan,
-            width: width,
-            height: height,
-            bytesPerRow: bytesPerRow,
-            bytes: Data(bytes)
-        )
+        return bytes
     }
 
     /// How a glyph is mapped into its cell box.

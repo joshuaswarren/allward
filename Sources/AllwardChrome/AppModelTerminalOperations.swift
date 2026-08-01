@@ -64,7 +64,8 @@ extension AppModel {
 
     private func applyTerminalConfiguration(_ updated: Configuration) async {
         do {
-            try await applyConfiguration(updated.write(to: AllwardPaths.configurationFile()))
+            let written = try await updated.writeOffMainThread(to: AllwardPaths.configurationFile())
+            await applyConfiguration(written)
         } catch {
             lastActionMessage = "The font size could not be saved: \(error.localizedDescription)"
         }
@@ -133,8 +134,8 @@ extension AppModel {
     /// watcher, which is what Shift-Command-Comma is for.
     public func reloadConfigurationFromDisk() async {
         do {
-            await applyConfiguration(
-                try Configuration.load(from: AllwardPaths.configurationFile()))
+            let loaded = try await Configuration.loadOffMainThread(from: AllwardPaths.configurationFile())
+            await applyConfiguration(loaded)
         } catch {
             lastActionMessage = "The configuration could not be reloaded: \(error.localizedDescription)"
         }

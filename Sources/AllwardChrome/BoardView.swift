@@ -14,7 +14,6 @@ public struct BoardView: View {
     public let onOpenDetails: @MainActor (BoardViewState.Row) -> Void
     public let onTeleport: @MainActor (BoardViewState.Row) -> Void
     public let onAcknowledgeLocally: @MainActor (BoardViewState.Row) -> Void
-    public let onPublisherDecision: @MainActor (BoardViewState.Row, String) -> Void
     public let onBoardAction: @MainActor (String) -> Void
     public let onDismiss: @MainActor () -> Void
 
@@ -23,7 +22,6 @@ public struct BoardView: View {
         onOpenDetails: @escaping @MainActor (BoardViewState.Row) -> Void = { _ in },
         onTeleport: @escaping @MainActor (BoardViewState.Row) -> Void = { _ in },
         onAcknowledgeLocally: @escaping @MainActor (BoardViewState.Row) -> Void = { _ in },
-        onPublisherDecision: @escaping @MainActor (BoardViewState.Row, String) -> Void = { _, _ in },
         onBoardAction: @escaping @MainActor (String) -> Void = { _ in },
         onDismiss: @escaping @MainActor () -> Void = {}
     ) {
@@ -31,7 +29,6 @@ public struct BoardView: View {
         self.onOpenDetails = onOpenDetails
         self.onTeleport = onTeleport
         self.onAcknowledgeLocally = onAcknowledgeLocally
-        self.onPublisherDecision = onPublisherDecision
         self.onBoardAction = onBoardAction
         self.onDismiss = onDismiss
     }
@@ -88,8 +85,7 @@ public struct BoardView: View {
             VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
                 LoadingStateView(
                     target: state.subject.target,
-                    step: state.inventoryStep ?? state.subject.boundedStep ?? "Inventory attempt in progress",
-                    cancel: { onBoardAction("cancel-inventory") })
+                    step: state.inventoryStep ?? state.subject.boundedStep ?? "Inventory attempt in progress")
                 Button("Inspect connection") { onBoardAction("inspect-connection") }
             }
         case .noSessions:
@@ -107,26 +103,20 @@ public struct BoardView: View {
         case .noOpenLoops:
             EmptyStateView(
                 title: "No open loops published",
-                reason: "All sessions remain available. Published open loops are optional.",
-                actionTitle: "Show all sessions",
-                action: { onBoardAction("show-all-sessions") })
+                reason: "All sessions remain available. Published open loops are optional.")
         case .error:
             VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
                 ErrorStateView(
                     operation: state.subject.failedOperation ?? "Refresh Board source",
                     target: state.subject.target,
                     cause: state.subject.reason ?? "The source did not return an inventory update.",
-                    recovery: state.subject.recovery ?? "Retry the source or open diagnostics.",
-                    retry: { onBoardAction("retry-source") })
+                    recovery: state.subject.recovery ?? "Open diagnostics to inspect the source.")
                 Button("Open diagnostics") { onBoardAction("open-diagnostics") }
             }
         case .staleOrDegraded:
             VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
                 StateBadge(presentation: state.presentation, subject: state.subject)
-                HStack(spacing: SpaceToken.inlineStandard.points) {
-                    Button("Reconnect affected source") { onBoardAction("reconnect-source") }
-                    Button("Inspect affected source") { onBoardAction("inspect-source") }
-                }
+                Button("Inspect affected source") { onBoardAction("inspect-source") }
             }
         case .permission:
             HStack(spacing: SpaceToken.inlineStandard.points) {
@@ -315,106 +305,11 @@ public struct BoardView: View {
                         .tokenForeground(.textSecondary, palette)
                 }
             }
-            if state.publisherColumnsPresent, let decision = row.permissionDecision {
-                publisherDecision(decision, row: row)
-            }
         }
         .padding(.leading, SpaceToken.section.points)
         .padding(.bottom, SpaceToken.blockStandard.points)
     }
 
-    private func canShowPublisherDecision(for row: BoardViewState.Row) -> Bool {
-        state.publisherColumnsPresent
-            && row.publisherDecisionActionable
-            && row.presentation.usability.permitsApproval
-            && !row.presentation.controlDisabled
-    }
-
-    @ViewBuilder
-    private func publisherDecision(
-        _ decision: BoardViewState.PermissionDecision,
-        row: BoardViewState.Row
-    ) -> some View {
-        VStack(alignment: .leading, spacing: SpaceToken.blockCompact.points) {
-            SectionHeader("Publisher decision")
-            Text("\(decision.publisher) • \(row.roomName) / \(row.sessionTitle)")
-                .tokenFont(.uiLabel, palette)
-                .tokenForeground(.textPrimary, palette)
-            if let expiryLabel = decision.expiryLabel {
-                Text(expiryLabel)
-                    .tokenFont(.uiData, palette)
-                    .tokenForeground(.textSecondary, palette)
-            }
-            switch decision.state {
-            case .ready:
-                if canShowPublisherDecision(for: row) {
-                    HStack(spacing: SpaceToken.inlineStandard.points) {
-                        ForEach(decision.options) { option in
-                            Button(option.verb) { onPublisherDecision(row, option.id) }
-                                .buttonStyle(.bordered)
-                                .accessibilityValue(row.presentation.accessibilityValue(row.subject))
-                                .accessibilityHint(
-                                    "\(decision.publisher), \(row.roomName) / \(row.sessionTitle)")
-                        }
-                    }
-                } else {
-                    StateBadge(presentation: row.presentation, subject: row.subject)
-                }
-            case .dispatching(let option):
-                Text("Sending \(option) to \(decision.publisher)")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textPrimary, palette)
-                if canShowPublisherDecision(for: row), decision.cancellable {
-                    Button("Cancel decision") { onPublisherDecision(row, "cancel") }
-                        .accessibilityValue(row.presentation.accessibilityValue(row.subject))
-                }
-            case .accepted:
-                Text("Decision accepted — awaiting publisher commit")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textPrimary, palette)
-            case .committed:
-                let mark = StateMark.mark(for: .finished)
-                Label("Granted", systemImage: mark.symbolName)
-                    .tokenFont(.uiLabel, palette)
-                    .tokenForeground(mark.color, palette)
-                Text("Decision committed")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textPrimary, palette)
-                if let effectReceipt = decision.effectReceipt {
-                    Text(effectReceipt)
-                        .tokenFont(.uiData, palette)
-                        .tokenForeground(.textSecondary, palette)
-                }
-            case .rejected(let reason):
-                Text("Decision rejected by publisher")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.stateError, palette)
-                Text(reason)
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textSecondary, palette)
-                Button("Review publisher state") { onOpenDetails(row) }
-            case .cancelled:
-                Text("Decision cancelled — not committed")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textPrimary, palette)
-            case .acknowledged(let outcome, let receipt):
-                Text("Publisher acknowledged \(outcome)")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.textPrimary, palette)
-                Text(receipt)
-                    .tokenFont(.uiData, palette)
-                    .tokenForeground(.textSecondary, palette)
-            case .outcomeUnknown(let transaction):
-                Text("Decision result unknown — checking publisher")
-                    .tokenFont(.uiBody, palette)
-                    .tokenForeground(.stateStale, palette)
-                Text("\(transaction) • \(row.roomName) / \(row.sessionTitle)")
-                    .tokenFont(.uiData, palette)
-                    .tokenForeground(.textSecondary, palette)
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
 
     private func teleportConfirmation(for row: BoardViewState.Row) -> some View {
         VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
@@ -535,7 +430,6 @@ public struct BoardView: View {
     private func selectNextActionable() {
         let actionable = visibleRows.filter {
             $0.locallyAcknowledgeable
-                || $0.publisherDecisionActionable
                 || $0.presentation.state == .error
                 || $0.presentation.state == .needsInput
         }

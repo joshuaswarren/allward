@@ -9,7 +9,6 @@ public enum SettingsUpdate: Hashable, Sendable {
     case selectRoomTint(roomID: String, tintID: String)
     case selectRoomTheme(roomID: String, themeID: String)
     case setRoomEarcon(roomID: String, earcon: Earcon, enabled: Bool)
-    case previewRoomEarcon(roomID: String, earcon: Earcon)
     case selectTheme(themeID: String)
     case setKeyShortcut(keyID: String, shortcut: String)
     case setIntegration(integrationID: String, enabled: Bool)
@@ -403,11 +402,6 @@ public struct SettingsView: View {
             Text(rule.enabledByDefault ? "On by default" : "Off by default")
                 .tokenFont(.uiCaption, palette)
                 .tokenForeground(.textSecondary, palette)
-            Button("Preview") {
-                emit(.previewRoomEarcon(roomID: room.id, earcon: rule.earcon))
-            }
-            .tokenFont(.uiLabel, palette)
-            .accessibilityLabel("Preview \(earconLabel(rule.earcon)) for \(room.name)")
         }
     }
 

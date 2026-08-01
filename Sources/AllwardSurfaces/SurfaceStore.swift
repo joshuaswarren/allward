@@ -215,13 +215,28 @@ public actor SurfaceStore {
     private var mcpRecordIDs: [MCPKey: RecordID] = [:]
     private var mcpMetadata: [RecordID: MCPMetadata] = [:]
     private var mcpInvocationReceipts: [MCPInvocationKey: MCPAuthoredMutationReceipt] = [:]
+    private var mcpInvocationReceiptDates: [MCPInvocationKey: Date] = [:]
     private var events: [SurfaceEvent] = []
     private var acknowledgedEventIDs: Set<SurfaceEventID> = []
     private var consumedDigestTokens: Set<DigestAcknowledgmentToken> = []
     private var hasAcknowledgedDigest = false
+    private var maxAcknowledgedOrdinal: UInt64?
     private var nextEventOrdinal: UInt64 = 1
     private var nextMCPCommitOrdinal: UInt64 = 1
     private var generation: Generation = .initial
+
+    public static let maxRetainedEventsCount: Int = 500
+    public static let maxRetainedEventsAge: TimeInterval = 3600
+    public static let maxConsumedDigestTokensCount: Int = 100
+    public static let maxMCPInvocationReceiptsCount: Int = 200
+    public static let maxMCPInvocationReceiptsAge: TimeInterval = 3600
+
+    public var retainedEventsCount: Int { events.count }
+    public var recordsCount: Int { recordsByID.count }
+    public var mcpReceiptsCount: Int { mcpInvocationReceipts.count }
+    public var adapterRecordIDsCount: Int { adapterRecordIDs.count }
+    public var commandRecordIDsCount: Int { commandRecordIDs.count }
+    public var mcpRecordIDsCount: Int { mcpRecordIDs.count }
 
     public init(
         clock: any AllwardClock,
@@ -385,7 +400,7 @@ public actor SurfaceStore {
            stored.record.composition.freshness != .ended,
            stored.record.composition.freshness != .superseded {
             let receipt = receipt(status: .alreadyExists, recordID: recordID, metadata: metadata)
-            mcpInvocationReceipts[invocationKey] = receipt
+            recordMCPReceipt(invocationKey, receipt)
             return receipt
         }
         let revision = mcpRecordIDs[key].flatMap { mcpMetadata[$0]?.revision }.map { $0 &+ 1 } ?? 1
@@ -400,14 +415,16 @@ public actor SurfaceStore {
         )
         guard apply(publication) else {
             let fallback = MCPMetadata(key: key, incarnation: incarnation, revision: revision)
-            return receipt(status: .alreadyExists, recordID: recordID, metadata: fallback)
+            let receipt = receipt(status: .alreadyExists, recordID: recordID, metadata: fallback)
+            recordMCPReceipt(invocationKey, receipt)
+            return receipt
         }
         generation = generation.next
         let metadata = MCPMetadata(key: key, incarnation: incarnation, revision: revision)
         mcpRecordIDs[key] = recordID
         mcpMetadata[recordID] = metadata
         let result = committedReceipt(status: .created, recordID: recordID, metadata: metadata)
-        mcpInvocationReceipts[invocationKey] = result
+        recordMCPReceipt(invocationKey, result)
         return result
     }
 
@@ -428,12 +445,12 @@ public actor SurfaceStore {
               let stored = recordsByID[recordID],
               stored.record.composition.freshness == .live else {
             let result = emptyReceipt(status: .notFound)
-            mcpInvocationReceipts[invocationKey] = result
+            recordMCPReceipt(invocationKey, result)
             return result
         }
         guard metadata.revision == expectedRevision else {
             let result = receipt(status: .revisionConflict, recordID: recordID, metadata: metadata)
-            mcpInvocationReceipts[invocationKey] = result
+            recordMCPReceipt(invocationKey, result)
             return result
         }
         let revision = metadata.revision &+ 1
@@ -445,14 +462,14 @@ public actor SurfaceStore {
             isMeaningful: true
         )) else {
             let result = receipt(status: .revisionConflict, recordID: recordID, metadata: metadata)
-            mcpInvocationReceipts[invocationKey] = result
+            recordMCPReceipt(invocationKey, result)
             return result
         }
         generation = generation.next
         metadata.revision = revision
         mcpMetadata[recordID] = metadata
         let result = committedReceipt(status: .updated, recordID: recordID, metadata: metadata)
-        mcpInvocationReceipts[invocationKey] = result
+        recordMCPReceipt(invocationKey, result)
         return result
     }
 
@@ -473,12 +490,12 @@ public actor SurfaceStore {
               var stored = recordsByID[recordID],
               stored.record.composition.freshness == .live else {
             let result = emptyReceipt(status: .notFound)
-            mcpInvocationReceipts[invocationKey] = result
+            recordMCPReceipt(invocationKey, result)
             return result
         }
         guard metadata.revision == expectedRevision else {
             let result = receipt(status: .revisionConflict, recordID: recordID, metadata: metadata)
-            mcpInvocationReceipts[invocationKey] = result
+            recordMCPReceipt(invocationKey, result)
             return result
         }
         metadata.revision &+= 1
@@ -492,7 +509,7 @@ public actor SurfaceStore {
         _ = appendEvent(record: stored.record, transition: .semanticChange, meaningful: true)
         generation = generation.next
         let result = committedReceipt(status: .ended, recordID: recordID, metadata: metadata)
-        mcpInvocationReceipts[invocationKey] = result
+        recordMCPReceipt(invocationKey, result)
         return result
     }
 
@@ -561,6 +578,8 @@ public actor SurfaceStore {
         acknowledgedEventIDs.formUnion(tokenEventIDs)
         consumedDigestTokens.insert(token)
         hasAcknowledgedDigest = true
+        maxAcknowledgedOrdinal = max(maxAcknowledgedOrdinal ?? 0, token.maxContiguousOrdinal)
+        pruneStaleState()
         generation = generation.next
         return makeSnapshot().digest
     }
@@ -675,9 +694,88 @@ public actor SurfaceStore {
             ordinal: ordinal,
             record: record,
             transition: transition,
-            isMeaningful: meaningful
+            isMeaningful: meaningful,
+            timestamp: clock.now
         ))
+        pruneStaleState()
         return ordinal
+    }
+
+    private func recordMCPReceipt(_ key: MCPInvocationKey, _ receipt: MCPAuthoredMutationReceipt) {
+        mcpInvocationReceipts[key] = receipt
+        mcpInvocationReceiptDates[key] = clock.now
+    }
+
+    private func pruneStaleState() {
+        let now = clock.now
+
+        let maxAckOrdinal = maxAcknowledgedOrdinal ?? 0
+
+        events.removeAll { event in
+            let isAcknowledged = acknowledgedEventIDs.contains(event.id)
+                || (maxAcknowledgedOrdinal != nil && event.ordinal <= maxAckOrdinal)
+            guard isAcknowledged else { return false }
+            return now.timeIntervalSince(event.timestamp) > SurfaceStore.maxRetainedEventsAge
+        }
+
+        if events.count > SurfaceStore.maxRetainedEventsCount {
+            let excess = events.count - SurfaceStore.maxRetainedEventsCount
+            var removed = 0
+            events.removeAll { event in
+                guard removed < excess else { return false }
+                let isAcknowledged = acknowledgedEventIDs.contains(event.id)
+                    || (maxAcknowledgedOrdinal != nil && event.ordinal <= maxAckOrdinal)
+                if isAcknowledged {
+                    removed += 1
+                    return true
+                }
+                return false
+            }
+        }
+
+        let remainingEventIDs = Set(events.map(\.id))
+        acknowledgedEventIDs.formIntersection(remainingEventIDs)
+
+        if consumedDigestTokens.count > SurfaceStore.maxConsumedDigestTokensCount {
+            let sortedTokens = consumedDigestTokens.sorted { $0.maxContiguousOrdinal > $1.maxContiguousOrdinal }
+            consumedDigestTokens = Set(sortedTokens.prefix(SurfaceStore.maxConsumedDigestTokensCount))
+        }
+
+        let activeEventRecordIDs = Set(events.map(\.record.id))
+        let currentlyActiveRecordIDs = Set(activeByKey.values)
+
+        let recordIDsToPrune = recordsByID.compactMap { (recordID, stored) -> RecordID? in
+            let freshness = stored.record.composition.freshness
+            let isSupersededOrEnded = (freshness == .superseded || freshness == .ended)
+            guard isSupersededOrEnded else { return nil }
+            guard !activeEventRecordIDs.contains(recordID) else { return nil }
+            guard !currentlyActiveRecordIDs.contains(recordID) else { return nil }
+            return recordID
+        }
+
+        for recordID in recordIDsToPrune {
+            recordsByID.removeValue(forKey: recordID)
+            mcpMetadata.removeValue(forKey: recordID)
+        }
+
+        let validRecordIDs = Set(recordsByID.keys)
+        adapterRecordIDs = adapterRecordIDs.filter { validRecordIDs.contains($0.value) }
+        commandRecordIDs = commandRecordIDs.filter { validRecordIDs.contains($0.value) }
+        mcpRecordIDs = mcpRecordIDs.filter { validRecordIDs.contains($0.value) }
+        activeByKey = activeByKey.filter { validRecordIDs.contains($0.value) }
+
+        mcpInvocationReceiptDates = mcpInvocationReceiptDates.filter { (key, date) in
+            now.timeIntervalSince(date) <= SurfaceStore.maxMCPInvocationReceiptsAge
+        }
+        if mcpInvocationReceipts.count > SurfaceStore.maxMCPInvocationReceiptsCount {
+            let sortedKeys = mcpInvocationReceiptDates.sorted { $0.value > $1.value }.map(\.key)
+            let validKeys = Set(sortedKeys.prefix(SurfaceStore.maxMCPInvocationReceiptsCount))
+            mcpInvocationReceipts = mcpInvocationReceipts.filter { validKeys.contains($0.key) }
+            mcpInvocationReceiptDates = mcpInvocationReceiptDates.filter { validKeys.contains($0.key) }
+        } else {
+            let validKeys = Set(mcpInvocationReceiptDates.keys)
+            mcpInvocationReceipts = mcpInvocationReceipts.filter { validKeys.contains($0.key) }
+        }
     }
 
     private func authoredRecord(

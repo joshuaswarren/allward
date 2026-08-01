@@ -19,6 +19,7 @@ public struct SurfaceEvent: Hashable, Sendable, Codable, Identifiable {
     public var record: NormalizedRecord
     public var transition: SurfaceTransition
     public var isMeaningful: Bool
+    public var timestamp: Date
 
     public var id: SurfaceEventID { SurfaceEventID(recordID: record.id, ordinal: ordinal) }
 
@@ -26,12 +27,14 @@ public struct SurfaceEvent: Hashable, Sendable, Codable, Identifiable {
         ordinal: UInt64,
         record: NormalizedRecord,
         transition: SurfaceTransition,
-        isMeaningful: Bool
+        isMeaningful: Bool,
+        timestamp: Date = Date()
     ) {
         self.ordinal = ordinal
         self.record = record
         self.transition = transition
         self.isMeaningful = isMeaningful
+        self.timestamp = timestamp
     }
 }
 
