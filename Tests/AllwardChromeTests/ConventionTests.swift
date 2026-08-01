@@ -1,3 +1,5 @@
+import AllwardCore
+import AllwardDesign
 import AppKit
 import XCTest
 
@@ -80,6 +82,31 @@ final class ConventionTests: XCTestCase {
         XCTAssertTrue(
             MainWindowController.instancesRespond(to: #selector(NSResponder.cancelOperation(_:))),
             "Escape must be handled on the responder chain, not only in SwiftUI")
+    }
+
+    @MainActor
+    func testDifferentiateWithoutColourIsReadAndCarried() {
+        // Reading the setting is not honouring it: the field existed for a
+        // while with nothing consuming it, which is indistinguishable from not
+        // supporting the preference at all.
+        let settings = SystemAccessibility.current()
+        XCTAssertNotNil(settings.differentiateWithoutColor as Bool?)
+        let on = AllwardDesign.AccessibilitySettings(differentiateWithoutColor: true)
+        XCTAssertTrue(on.differentiateWithoutColor)
+        XCTAssertFalse(AllwardDesign.AccessibilitySettings.standard.differentiateWithoutColor)
+    }
+
+    @MainActor
+    func testEachRoomGetsAStableNonColourSeamPattern() {
+        // The seam is the one Room cue carried by hue alone, so with the
+        // preference on it has to differ by shape as well.
+        let first = MainWindowController.seamDashes(for: RoomID(rawValue: UUID()))
+        XCTAssertFalse(first.isEmpty)
+        let fixed = RoomID(rawValue: UUID())
+        XCTAssertEqual(
+            MainWindowController.seamDashes(for: fixed),
+            MainWindowController.seamDashes(for: fixed),
+            "a Room's pattern must not change between reads")
     }
 
     @MainActor

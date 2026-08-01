@@ -13,6 +13,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     private let routerHost: NSHostingView<AnyView>
     private let overlayHost: NSHostingView<AnyView>
     private let roomSeam = NSView()
+    private let seamPattern = CAShapeLayer()
     private var overlay: SummonedSurface?
 
     /// Which summoned surface is on screen. Exactly one at a time, so focus
@@ -78,6 +79,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
         splitHost.delegate = self
         roomSeam.wantsLayer = true
+        seamPattern.isHidden = true
+        roomSeam.layer?.addSublayer(seamPattern)
         overlayHost.isHidden = true
 
         root.addSubview(roomSeam)
@@ -99,6 +102,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         let seamWidth = StrokeToken.roomSeam.width(model.palette.settings)
         roomSeam.frame = CGRect(
             x: 0, y: topInset, width: seamWidth, height: bounds.height - topInset)
+        applyRoomSeam()
         let contentX = seamWidth
         let contentWidth = bounds.width - seamWidth
         let routerHeight = routerHost.isHidden ? 0 : routerHost.fittingSize.height
@@ -122,6 +126,43 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         rebuildPresentedSurface()
     }
 
+    /// The seam is the one place Room identity is carried by hue alone.
+    ///
+    /// With Differentiate Without Colour on, two Rooms whose tints a user
+    /// cannot tell apart become the same seam. Giving each Room a stable dash
+    /// pattern makes the seam readable by shape, so the cue survives without
+    /// relying on the colour at all.
+    private func applyRoomSeam() {
+        let colour = model.palette[.seam].cgColor
+        guard model.palette.settings.differentiateWithoutColor,
+            let room = model.activeRoom?.id
+        else {
+            seamPattern.isHidden = true
+            roomSeam.layer?.backgroundColor = colour
+            return
+        }
+        roomSeam.layer?.backgroundColor = model.palette[.canvas].cgColor
+        seamPattern.isHidden = false
+        seamPattern.frame = roomSeam.bounds
+        seamPattern.strokeColor = colour
+        seamPattern.lineWidth = roomSeam.bounds.width
+        seamPattern.lineDashPattern = Self.seamDashes(for: room)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: roomSeam.bounds.midX, y: 0))
+        path.addLine(to: CGPoint(x: roomSeam.bounds.midX, y: roomSeam.bounds.height))
+        seamPattern.path = path
+    }
+
+    /// A stable dash rhythm per Room, so the same Room always looks the same.
+    static func seamDashes(for room: RoomID) -> [NSNumber] {
+        let patterns: [[NSNumber]] = [
+            [24, 0], [12, 6], [4, 4], [18, 4, 4, 4], [2, 6],
+        ]
+        var hash: UInt64 = 5381
+        for byte in "\(room.rawValue)".utf8 { hash = hash &* 33 &+ UInt64(byte) }
+        return patterns[Int(hash % UInt64(patterns.count))]
+    }
+
     private func rebuildPresentedSurface() {
         switch overlay {
         case .board: presentBoard()
@@ -139,7 +180,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     private func applyPalette() {
         window?.contentView?.layer?.backgroundColor =
             model.terminalTheme.defaultBackground.cgColor
-        roomSeam.layer?.backgroundColor = model.palette[.seam].cgColor
+        applyRoomSeam()
         // The titlebar is transparent over the grid, so the system draws its
         // title text straight onto the session background. Taking the window's
         // appearance from the chrome palette meant a light-mode Mac painted
