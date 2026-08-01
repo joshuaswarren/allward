@@ -11,7 +11,6 @@ public enum SettingsUpdate: Hashable, Sendable {
     case setRoomEarcon(roomID: String, earcon: Earcon, enabled: Bool)
     case previewRoomEarcon(roomID: String, earcon: Earcon)
     case selectTheme(themeID: String)
-    case importTheme(format: String)
     case setKeyShortcut(keyID: String, shortcut: String)
     case setIntegration(integrationID: String, enabled: Bool)
     case addRoom
@@ -170,24 +169,65 @@ public struct SettingsView: View {
         }
     }
 
+    /// A sample of the chosen font.
+    ///
+    /// Unlabelled, this was a row of characters with no stated purpose. The
+    /// characters are not arbitrary: they are the ones a coding font has to
+    /// keep apart, so seeing them is the point of showing them.
     private var glyphSample: some View {
-        Text("00 Il1 [] {} → λ café 한글")
-            .font(configuredTerminalFont)
-            .tokenForeground(.textPrimary, palette)
-            .textSelection(.enabled)
-            .padding(SpaceToken.blockStandard.points)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay {
-                RoundedRectangle(cornerRadius: RadiusToken.control.points, style: .continuous)
-                    .strokeBorder(
-                        palette[.strokeDivider].swiftUIColor,
-                        lineWidth: StrokeToken.paneDivider.width(palette.settings)
-                    )
+        VStack(alignment: .leading, spacing: SpaceToken.inlineTight.points) {
+            Text("Preview")
+                .tokenFont(.uiHeading, palette)
+                .tokenForeground(.textPrimary, palette)
+            Text("Check that 0 and O, and 1, l and I, are easy to tell apart.")
+                .tokenFont(.uiBody, palette)
+                .tokenForeground(.textSecondary, palette)
+            Text("0O 1lI [] {} → λ café 한글")
+                .font(configuredTerminalFont)
+                .tokenForeground(.textPrimary, palette)
+                .textSelection(.enabled)
+                .padding(SpaceToken.blockStandard.points)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay {
+                    RoundedRectangle(cornerRadius: RadiusToken.control.points, style: .continuous)
+                        .strokeBorder(
+                            palette[.strokeDivider].swiftUIColor,
+                            lineWidth: StrokeToken.paneDivider.width(palette.settings)
+                        )
+                }
+                .accessibilityLabel(
+                    "Font preview: zero, capital O, one, lowercase L, capital I, "
+                        + "brackets, arrow, lambda, accents, and Hangul"
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var themeSettings: some View {
+        VStack(alignment: .leading, spacing: SpaceToken.section.points) {
+            ForEach(state.appearance) { item in generalControl(item) }
+            SectionHeader("Themes", count: state.themes.count)
+            ForEach(state.themes) { theme in
+                Button {
+                    selectedThemeID = theme.id
+                    emit(.selectTheme(themeID: theme.id))
+                } label: {
+                    HStack(spacing: SpaceToken.inlineStandard.points) {
+                        let selected = selectedThemeID == theme.id
+                        let mark = StateMark.mark(for: selected ? .live : .empty)
+                        Label(theme.name, systemImage: mark.symbolName)
+                            .tokenFont(.uiBody, palette)
+                            .tokenForeground(mark.color, palette)
+                        Spacer(minLength: SpaceToken.inlineStandard.points)
+                        Text(themeDetail(theme))
+                            .tokenFont(.uiData, palette)
+                            .tokenForeground(.textSecondary, palette)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(selectedThemeID == theme.id ? "Selected" : "Not selected")
             }
-            .accessibilityLabel(
-                "Terminal font glyph sample: zero 0, capital I, lowercase l, one, " +
-                    "brackets, arrow, lambda, accents, and Hangul"
-            )
+        }
     }
 
     @ViewBuilder
@@ -337,7 +377,7 @@ public struct SettingsView: View {
                 }
                 .labelsHidden()
             }
-            Text("Notification rules")
+            Text("Play a sound when")
                 .tokenFont(.uiLabel, palette)
                 .tokenForeground(.textSecondary, palette)
             ForEach(room.notificationRules) { rule in earconControl(room: room, rule: rule) }
@@ -371,64 +411,6 @@ public struct SettingsView: View {
         }
     }
 
-    private var themeSettings: some View {
-        VStack(alignment: .leading, spacing: SpaceToken.section.points) {
-            ForEach(state.appearance) { item in generalControl(item) }
-            SectionHeader("Themes", count: state.themes.count)
-            ForEach(state.themes) { theme in
-                Button {
-                    selectedThemeID = theme.id
-                    emit(.selectTheme(themeID: theme.id))
-                } label: {
-                    HStack(spacing: SpaceToken.inlineStandard.points) {
-                        let selected = selectedThemeID == theme.id
-                        let mark = StateMark.mark(for: selected ? .live : .empty)
-                        Label(theme.name, systemImage: mark.symbolName)
-                            .tokenFont(.uiBody, palette)
-                            .tokenForeground(mark.color, palette)
-                        Spacer(minLength: SpaceToken.inlineStandard.points)
-                        Text(themeDetail(theme))
-                            .tokenFont(.uiData, palette)
-                            .tokenForeground(.textSecondary, palette)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityValue(selectedThemeID == theme.id ? "Selected" : "Not selected")
-            }
-            Divider().overlay(palette[.strokeDivider].swiftUIColor)
-            SectionHeader("Import")
-            Text("Imports become Allward-owned themes. Source files are not live dependencies.")
-                .tokenFont(.uiBody, palette)
-                .tokenForeground(.textSecondary, palette)
-            ForEach(state.themeImports) { themeImport in importControl(themeImport) }
-        }
-    }
-
-    private func importControl(_ themeImport: ThemeImportSetting) -> some View {
-        VStack(alignment: .leading, spacing: SpaceToken.inlineTight.points) {
-            Button {
-                emit(.importTheme(format: themeImport.format))
-            } label: {
-                Label(themeImport.label, systemImage: "square.and.arrow.down")
-                    .tokenFont(.uiBody, palette)
-            }
-            .disabled(!themeImport.isEnabled)
-            .accessibilityHint("Imports \(themeImport.format) once and reports every unmapped field")
-            if let report = themeImport.report {
-                let reportState: PresentationState = themeImport.unmappedFields.isEmpty ? .finished : .degraded
-                let mark = StateMark.mark(for: reportState)
-                Label(report, systemImage: mark.symbolName)
-                    .tokenFont(.uiLabel, palette)
-                    .tokenForeground(mark.color, palette)
-                ForEach(themeImport.unmappedFields, id: \.self) { field in
-                    Text(field)
-                        .tokenFont(.uiData, palette)
-                        .tokenForeground(.textPrimary, palette)
-                        .accessibilityLabel("Unmapped field, \(field)")
-                }
-            }
-        }
-    }
 
     private var keySettings: some View {
         VStack(alignment: .leading, spacing: SpaceToken.section.points) {

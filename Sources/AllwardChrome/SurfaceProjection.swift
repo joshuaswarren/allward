@@ -173,7 +173,6 @@ public enum SurfaceProjection {
                     isSelected: $0 == configuration.terminal.theme
                 )
             },
-            themeImports: [],
             keys: keySettings(configuration.dictationKey),
             integrations: integrationSettings(
                 configuration: configuration,
@@ -627,8 +626,8 @@ public enum SurfaceProjection {
     private static func appearanceSettings(_ configuration: Configuration) -> [GeneralSetting] {
         [
             GeneralSetting(
-                id: "board.presentation", label: "Board presentation",
-                detail: "How much detail the session Board packs into a row.",
+                id: "board.presentation", label: "Board density",
+                detail: "How much each session shows on the Board.",
                 value: .choice(
                     selectedID: configuration.boardPresentation.rawValue,
                     choices: BoardPresentation.allCases.map {
@@ -644,8 +643,8 @@ public enum SurfaceProjection {
     private static func soundSettings(_ configuration: Configuration) -> [GeneralSetting] {
         [
             GeneralSetting(
-                id: "earcons.enabled", label: "Earcons",
-                detail: "Off silences every Room's earcons without changing its rules.",
+                id: "earcons.enabled", label: "Sound alerts",
+                detail: "Play a sound when a session finishes or needs you.",
                 value: .toggle(configuration.earconsEnabled), isEnabled: true)
         ]
     }
@@ -669,7 +668,7 @@ public enum SurfaceProjection {
             name: room.name,
             hostSummary: hostSummary,
             sessionCount: room.sessionMappings.count,
-            selectedTintID: room.baseTint.hexString,
+            selectedTintID: tintID(for: room.baseTint),
             approvedTints: tintChoices,
             selectedThemeID: room.terminalThemeName,
             themeChoices: themes,
@@ -683,13 +682,53 @@ public enum SurfaceProjection {
         )
     }
 
-    private static func roomTintChoices(_ rooms: [Room]) -> [RoomTintChoice] {
-        var seen: Set<String> = []
-        return rooms.compactMap { room in
-            let identifier = room.baseTint.hexString
-            guard seen.insert(identifier).inserted else { return nil }
-            return RoomTintChoice(id: identifier, label: room.name, tint: room.baseTint)
+    /// The colours a Room can be tinted.
+    ///
+    /// These were built from the Rooms themselves, so the colour menu listed
+    /// "Personal" and "Work" - the names of whoever happened to be using each
+    /// colour, which is not a choice anyone can act on. They are colours now,
+    /// and they are named after colours.
+    private static let tintPalette: [(id: String, label: String, hex: String)] = [
+        ("blue", "Blue", "#5aa0ff"),
+        ("teal", "Teal", "#3ecde8"),
+        ("green", "Green", "#78d43f"),
+        ("amber", "Amber", "#ffc233"),
+        ("rose", "Rose", "#ff5f6e"),
+        ("violet", "Violet", "#c46bff"),
+        ("slate", "Slate", "#8b919b"),
+    ]
+
+    /// The palette id for a colour, or the colour itself when it predates the
+    /// palette.
+    static func tintID(for tint: TokenColor) -> String {
+        tintPalette.first { $0.hex.caseInsensitiveCompare(tint.hexString) == .orderedSame }?.id
+            ?? tint.hexString
+    }
+
+    /// The colour a palette id names.
+    static func tint(forID id: String) -> TokenColor? {
+        if let entry = tintPalette.first(where: { $0.id == id }) {
+            return TokenColor(hex: entry.hex)
         }
+        return TokenColor(hex: id)
+    }
+
+    private static func roomTintChoices(_ rooms: [Room]) -> [RoomTintChoice] {
+        var choices = tintPalette.compactMap { entry in
+            TokenColor(hex: entry.hex).map {
+                RoomTintChoice(id: entry.id, label: entry.label, tint: $0)
+            }
+        }
+        // A Room set up before this palette existed keeps its colour rather
+        // than being silently repainted on first open.
+        let known = Set(choices.map(\.tint.hexString))
+        for room in rooms where !known.contains(room.baseTint.hexString) {
+            choices.insert(
+                RoomTintChoice(
+                    id: room.baseTint.hexString, label: "Custom", tint: room.baseTint),
+                at: 0)
+        }
+        return choices
     }
 
     private static func themeAppearance(_ name: String) -> Appearance {
@@ -746,9 +785,9 @@ public enum SurfaceProjection {
             IntegrationSetting(
                 id: "herdr",
                 name: "herdr",
-                detail: "\(adapterHealthLabel(adapterHealth)). Discovers panes from a "
-                    + "running herdr server; there is nothing to switch on here, it "
-                    + "appears when a server does.",
+                detail: adapterHealth == .none
+                    ? "No server found. Panes appear here when herdr is running."
+                    : "\(adapterHealthLabel(adapterHealth)). Routing panes into Allward.",
                 commandLine: nil,
                 presentation: PresentationComposer.compose(adapterComposition),
                 subject: PresentationSubject(
@@ -764,9 +803,8 @@ public enum SurfaceProjection {
                 id: "mcp",
                 name: "MCP",
                 detail: configuration.mcpEnabled
-                    ? "On. Agents and the allward-mcp client can read this "
-                        + "terminal and drive it."
-                    : "Off. Nothing outside Allward can read or drive this terminal.",
+                    ? "Agents can read this terminal and type into it."
+                    : "Agents cannot reach this terminal.",
                 commandLine: mcpCommandLine,
                 presentation: PresentationComposer.compose(mcpComposition),
                 subject: PresentationSubject(componentName: "Integration", target: "Allward MCP"),
@@ -810,8 +848,7 @@ public enum SurfaceProjection {
             id: "speech-retention",
             label: "Speech retention",
             value: .disabled,
-            detail: "Dictation is transcribed on device and the audio is discarded "
-                + "immediately. There is no setting to retain it."
+            detail: "Transcribed on device. Audio is never stored."
         ),
     ]
 

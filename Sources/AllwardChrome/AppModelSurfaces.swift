@@ -363,7 +363,8 @@ extension AppModel {
         case let .updateGeneral(itemID, value):
             return applyGeneralSetting(itemID: itemID, value: value, to: &configuration)
         case let .selectRoomTint(roomID, tintID):
-            guard let id = UUID(uuidString: roomID), let tint = TokenColor(hex: tintID),
+            guard let id = UUID(uuidString: roomID),
+                  let tint = SurfaceProjection.tint(forID: tintID),
                   let index = configuration.rooms.firstIndex(where: { $0.id.rawValue == id }) else {
                 lastActionMessage = "The selected Room tint is not valid."
                 return false
@@ -433,9 +434,6 @@ extension AppModel {
                 configuration.rooms[index].terminalThemeName = themeID
             }
             return true
-        case .importTheme:
-            lastActionMessage = "Theme import needs a file selected from the import control."
-            return false
         case let .setKeyShortcut(keyID, shortcut):
             guard keyID == "speech.dictation" else {
                 lastActionMessage = "That shortcut is fixed by the application menu."

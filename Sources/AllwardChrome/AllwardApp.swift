@@ -227,10 +227,10 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(3))
             await model.refreshTopology()
         case "escape":
-            // A real key event through the normal path. Calling
-            // `cancelOperation` directly proved the method worked while Escape
-            // itself stayed broken, which is exactly the mistake that let this
-            // ship twice.
+            // Focus has to settle first: SwiftUI installs the key view that
+            // swallowed Escape a moment after the card appears, so firing
+            // immediately tests the only state in which the bug does not exist.
+            try? await Task.sleep(for: .milliseconds(600))
             sendEscapeKey(to: window)
             try? await Task.sleep(for: .milliseconds(400))
         case let step where step.hasPrefix("theme-"):
@@ -265,6 +265,18 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Posts Escape the way the keyboard does, so the test exercises key
     /// routing rather than the handler it is supposed to reach.
+    /// An Escape delivered to the window, after focus has settled.
+    ///
+    /// Escape was reported broken three times while this harness passed. Two
+    /// reasons, both fixed here. It called `cancelOperation` directly, which
+    /// proves a method runs rather than that a key reaches it. And it fired the
+    /// instant the surface appeared, before SwiftUI installs the key view that
+    /// was eating the key - so it tested the one moment the bug is absent.
+    ///
+    /// Under `--capture` the app is never key (`active=false`), so a posted
+    /// CGEvent is discarded by the window server and cannot be used. The event
+    /// goes to `NSWindow.sendEvent`, which is where a real key enters the
+    /// window and the deepest point the application controls.
     private func sendEscapeKey(to window: MainWindowController) {
         guard let nsWindow = window.window,
             let down = NSEvent.keyEvent(
@@ -274,7 +286,9 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
                 isARepeat: false, keyCode: 53)
         else { return }
-        NSApp.sendEvent(down)
+        print("escape into: \(type(of: nsWindow)) responder="
+            + "\(nsWindow.firstResponder.map { "\(type(of: $0))" } ?? "none")")
+        nsWindow.sendEvent(down)
     }
 
     /// A surface presents through an async projection, so a capture that fires

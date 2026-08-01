@@ -84,8 +84,8 @@ public struct TerminalTheme: Codable, Hashable, Sendable, Identifiable {
 public enum ThemeCatalog {
   public static let darkDefault = TerminalTheme(
     name: "Allward Night",
-    ansi: colors(["#15191e", "#d66b6b", "#73b58c", "#d4a95d", "#6f9ed6", "#a98bd4", "#63b7bd", "#c8cdd4"]),
-    brights: colors(["#777d86", "#ef8585", "#8dcea4", "#e7c277", "#8ab7ea", "#c2a4e7", "#7ed0d5", "#f1f3f5"]),
+    ansi: colors(["#1b2027", "#ff5f6e", "#78d43f", "#ffc233", "#5aa0ff", "#c46bff", "#3ecde8", "#d7dce3"]),
+    brights: colors(["#8b919b", "#ff8f99", "#a2e878", "#ffd870", "#8dbcff", "#d99cff", "#7fe0f2", "#f4f6f8"]),
     foreground: color("#dce0e5"),
     background: color("#0f1216"),
     cursor: color("#d4a95d"),

@@ -124,14 +124,14 @@ public struct Room: Codable, Hashable, Sendable, Identifiable {
   public static let personal = Room(
     id: RoomID(rawValue: UUID(uuidString: "76F86540-A979-4E97-A29C-B67C94B11482")!),
     name: "Personal",
-    baseTint: TokenColor(hex: "#6f8fb7")!,
+    baseTint: TokenColor(hex: "#5aa0ff")!,
     terminalThemeName: "Allward Night"
   )
 
   public static let work = Room(
     id: RoomID(rawValue: UUID(uuidString: "AF63ED41-868B-40AB-B48D-306593C03B5E")!),
     name: "Work",
-    baseTint: TokenColor(hex: "#4f927f")!,
+    baseTint: TokenColor(hex: "#3ecde8")!,
     terminalThemeName: "Allward Night"
   )
 }

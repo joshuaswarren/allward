@@ -914,31 +914,6 @@ public struct ThemeSetting: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct ThemeImportSetting: Identifiable, Hashable, Sendable {
-    public var id: String
-    public var label: String
-    public var format: String
-    public var isEnabled: Bool
-    public var unmappedFields: [String]
-    public var report: String?
-
-    public init(
-        id: String,
-        label: String,
-        format: String,
-        isEnabled: Bool,
-        unmappedFields: [String],
-        report: String?
-    ) {
-        self.id = id
-        self.label = label
-        self.format = format
-        self.isEnabled = isEnabled
-        self.unmappedFields = unmappedFields
-        self.report = report
-    }
-}
-
 public struct KeySetting: Identifiable, Hashable, Sendable {
     public var id: String
     public var action: String
@@ -997,7 +972,6 @@ public struct SettingsViewState: Hashable, Sendable {
     public var sound: [GeneralSetting]
     public var rooms: [RoomSetting]
     public var themes: [ThemeSetting]
-    public var themeImports: [ThemeImportSetting]
     public var keys: [KeySetting]
     public var integrations: [IntegrationSetting]
     public var privacy: [PrivacySetting]
@@ -1005,13 +979,13 @@ public struct SettingsViewState: Hashable, Sendable {
         presentation: ComposedPresentation, subject: PresentationSubject, selectedTab: SettingsTab,
         general: [GeneralSetting], appearance: [GeneralSetting] = [], sound: [GeneralSetting] = [],
         rooms: [RoomSetting], themes: [ThemeSetting],
-        themeImports: [ThemeImportSetting], keys: [KeySetting],
+        keys: [KeySetting],
         integrations: [IntegrationSetting], privacy: [PrivacySetting]
     ) {
         self.presentation = presentation; self.subject = subject; self.selectedTab = selectedTab
         self.general = general; self.appearance = appearance; self.sound = sound
         self.rooms = rooms; self.themes = themes
-        self.themeImports = themeImports; self.keys = keys
+        self.keys = keys
         self.integrations = integrations; self.privacy = privacy
     }
 
@@ -1080,17 +1054,6 @@ public struct SettingsViewState: Hashable, Sendable {
                 ThemeSetting(
                     id: "allward-light", name: "Allward light", appearance: .light,
                     isBuiltIn: true, isSelected: false),
-            ],
-            themeImports: [
-                ThemeImportSetting(
-                    id: "iterm2", label: "Import iTerm2 colors", format: "iTerm2",
-                    isEnabled: true, unmappedFields: [], report: nil),
-                ThemeImportSetting(
-                    id: "ghostty", label: "Import Ghostty theme", format: "Ghostty",
-                    isEnabled: true, unmappedFields: [], report: nil),
-                ThemeImportSetting(
-                    id: "base16", label: "Import base16 scheme", format: "base16",
-                    isEnabled: true, unmappedFields: ["ANSI cursor shape"], report: "1 field was not mapped"),
             ],
             keys: Self.fixtureKeys,
             integrations: [

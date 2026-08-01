@@ -18,7 +18,7 @@ public enum RoomMutation {
     @discardableResult
     public static func add(
         to rooms: inout [Room],
-        tint: TokenColor = TokenColor(hex: "#7d7f89")!,
+        tint: TokenColor = TokenColor(hex: "#8b919b")!,
         themeName: String = "Allward Night"
     ) -> Room? {
         let used = Set(rooms.map(\.name))

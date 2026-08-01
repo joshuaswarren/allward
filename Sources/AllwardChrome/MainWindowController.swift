@@ -40,7 +40,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         self.routerHost = NSHostingView(rootView: AnyView(EmptyView()))
         self.overlayHost = NSHostingView(rootView: AnyView(EmptyView()))
 
-        let window = NSWindow(
+        let window = SurfaceWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -279,7 +279,14 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
                 .background(model.palette[.surfaceScrim].swiftUIColor)
         )
         window?.makeFirstResponder(overlayHost)
+        surfaceWindow?.dismissSummonedSurface = { [weak self] in
+            guard let self, self.overlay != nil else { return false }
+            self.dismissSummonedSurface()
+            return true
+        }
     }
+
+    private var surfaceWindow: SurfaceWindow? { window as? SurfaceWindow }
 
     /// A summoned surface is a card inside the window, so it must always read
     /// as smaller than the window it sits in. Each surface picks its own width;
