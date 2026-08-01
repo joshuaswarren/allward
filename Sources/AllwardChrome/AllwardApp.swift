@@ -404,7 +404,6 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         let workItem = NSMenuItem()
         let workMenu = NSMenu(title: "Work")
         add(workMenu, "Session board", #selector(showBoard(_:)), Shortcut.board)
-        add(workMenu, "Attention router", #selector(focusRouter(_:)), Shortcut.router)
         add(workMenu, "Re-entry digest", #selector(showDigest(_:)), Shortcut.digest)
         add(workMenu, "Command palette", #selector(showCommandPalette(_:)), Shortcut.palette)
         workMenu.addItem(.separator())
@@ -475,7 +474,6 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc public func connectSSH(_ sender: Any?) { model.keyWindowController?.presentHostPicker() }
     @objc public func showBoard(_ sender: Any?) { model.keyWindowController?.presentBoard() }
-    @objc public func focusRouter(_ sender: Any?) { model.keyWindowController?.presentBoard() }
     @objc public func showDigest(_ sender: Any?) { model.keyWindowController?.presentDigest() }
     @objc public func showCommandPalette(_ sender: Any?) { model.keyWindowController?.presentCommandPalette() }
     @objc public func showRoomSwitcher(_ sender: Any?) { model.keyWindowController?.presentRoomSwitcher() }

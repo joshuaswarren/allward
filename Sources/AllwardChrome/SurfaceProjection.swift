@@ -752,8 +752,6 @@ public enum SurfaceProjection {
             KeySetting(
                 id: "surface.board", action: "Board", shortcut: Shortcut.board.display, isConfigurable: false),
             KeySetting(
-                id: "surface.router", action: "Router", shortcut: Shortcut.router.display, isConfigurable: false),
-            KeySetting(
                 id: "surface.digest", action: "Digest", shortcut: Shortcut.digest.display, isConfigurable: false),
             KeySetting(
                 id: "surface.command-palette", action: "Command palette", shortcut: Shortcut.palette.display,
@@ -880,7 +878,6 @@ public enum SurfaceProjection {
             ]),
             CommandGroup(id: "surfaces", title: "Surfaces", commands: [
                 paletteCommand("surface.board", "Board", nil, Shortcut.board.display),
-                paletteCommand("surface.router", "Router", nil, Shortcut.router.display),
                 paletteCommand("surface.digest", "Digest", nil, Shortcut.digest.display),
                 paletteCommand("surface.command-palette", "Command palette", nil, Shortcut.palette.display),
             ]),

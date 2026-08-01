@@ -378,17 +378,50 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 }
 
 extension MainWindowController: NSToolbarDelegate {
-    private static let roomItem = NSToolbarItem.Identifier("allward.room")
-    private static let boardItem = NSToolbarItem.Identifier("allward.board")
-    private static let routerItem = NSToolbarItem.Identifier("allward.router")
-    private static let teleportItem = NSToolbarItem.Identifier("allward.teleport")
-    private static let settingsItem = NSToolbarItem.Identifier("allward.settings")
+    /// The toolbar, as data.
+    ///
+    /// The bell and the Board button ran the same call: `focusRouter` was a
+    /// copy of `showBoard`. It was not a miswire to repair - the attention
+    /// router is the always-visible strip, which shows a count and has nothing
+    /// to open, so "show me what needs attention" already *is* the Board. The
+    /// third button went.
+    ///
+    /// A tooltip is not decoration here: the toolbar is icon-only, so without
+    /// one an icon is the only thing telling you what a button does.
+    struct ToolbarCommand {
+        let id: NSToolbarItem.Identifier
+        let label: String
+        let symbol: String
+        let help: String
+        let action: Selector
+    }
+
+    static let toolbarCommands: [ToolbarCommand] = [
+        ToolbarCommand(
+            id: NSToolbarItem.Identifier("allward.room"), label: "Room",
+            symbol: "square.on.square",
+            help: "Switch Room. Rooms group sessions, hosts and a theme.",
+            action: #selector(AllwardAppDelegate.showRoomSwitcher(_:))),
+        ToolbarCommand(
+            id: NSToolbarItem.Identifier("allward.board"), label: "Board",
+            symbol: "rectangle.grid.1x2",
+            help: "Session board. Every session and which ones need you.",
+            action: #selector(AllwardAppDelegate.showBoard(_:))),
+        ToolbarCommand(
+            id: NSToolbarItem.Identifier("allward.teleport"), label: "Teleport",
+            symbol: "arrow.uturn.forward",
+            help: "Jump to the session that most needs attention.",
+            action: #selector(AllwardAppDelegate.teleport(_:))),
+        ToolbarCommand(
+            id: NSToolbarItem.Identifier("allward.settings"), label: "Settings",
+            symbol: "gearshape", help: "Settings.",
+            action: #selector(AllwardAppDelegate.showSettings(_:))),
+    ]
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            Self.roomItem, .flexibleSpace, Self.routerItem, Self.boardItem, Self.teleportItem,
-            Self.settingsItem,
-        ]
+        var ids: [NSToolbarItem.Identifier] = [Self.toolbarCommands[0].id, .flexibleSpace]
+        ids.append(contentsOf: Self.toolbarCommands.dropFirst().map(\.id))
+        return ids
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -399,36 +432,14 @@ extension MainWindowController: NSToolbarDelegate {
         _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
+        guard let command = Self.toolbarCommands.first(where: { $0.id == identifier })
+        else { return nil }
         let item = NSToolbarItem(itemIdentifier: identifier)
-        switch identifier {
-        case Self.roomItem:
-            item.label = "Room"
-            item.image = NSImage(
-                systemSymbolName: "square.on.square", accessibilityDescription: "Switch Room")
-            item.action = #selector(AllwardAppDelegate.showRoomSwitcher(_:))
-        case Self.boardItem:
-            item.label = "Board"
-            item.image = NSImage(
-                systemSymbolName: "rectangle.grid.1x2", accessibilityDescription: "Session board")
-            item.action = #selector(AllwardAppDelegate.showBoard(_:))
-        case Self.routerItem:
-            item.label = "Attention"
-            item.image = NSImage(
-                systemSymbolName: "bell.badge", accessibilityDescription: "Attention router")
-            item.action = #selector(AllwardAppDelegate.focusRouter(_:))
-        case Self.teleportItem:
-            item.label = "Teleport"
-            item.image = NSImage(
-                systemSymbolName: "arrow.uturn.forward",
-                accessibilityDescription: "Teleport to routed destination")
-            item.action = #selector(AllwardAppDelegate.teleport(_:))
-        case Self.settingsItem:
-            item.label = "Settings"
-            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
-            item.action = #selector(AllwardAppDelegate.showSettings(_:))
-        default:
-            return nil
-        }
+        item.label = command.label
+        item.image = NSImage(
+            systemSymbolName: command.symbol, accessibilityDescription: command.help)
+        item.toolTip = command.help
+        item.action = command.action
         item.isBordered = true
         item.target = nil
         return item

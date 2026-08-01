@@ -1094,7 +1094,6 @@ public struct SettingsViewState: Hashable, Sendable {
         KeySetting(id: "tabs", action: "Next or previous tab", shortcut: Shortcut.tabCycle, isConfigurable: false),
         KeySetting(id: "ssh", action: "Connect to SSH host", shortcut: Shortcut.connectSSH.display, isConfigurable: false),
         KeySetting(id: "board", action: "Open Board", shortcut: Shortcut.board.display, isConfigurable: false),
-        KeySetting(id: "router", action: "Focus router", shortcut: Shortcut.router.display, isConfigurable: false),
         KeySetting(id: "digest", action: "Open digest", shortcut: Shortcut.digest.display, isConfigurable: false),
         KeySetting(id: "palette", action: "Command palette", shortcut: Shortcut.palette.display, isConfigurable: false),
         KeySetting(id: "rooms", action: "Room switcher", shortcut: Shortcut.rooms.display, isConfigurable: false),

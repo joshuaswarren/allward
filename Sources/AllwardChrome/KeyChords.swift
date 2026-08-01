@@ -66,7 +66,6 @@ public enum Shortcut {
     public static let nextTab = KeyChord("\u{0009}", [.control])
     public static let previousTab = KeyChord("\u{0009}", [.control, .shift])
     public static let board = KeyChord("b", [.command, .shift])
-    public static let router = KeyChord("r", [.command, .shift])
     public static let digest = KeyChord("e", [.command, .shift])
     /// Command-K clears the screen in Terminal.app, iTerm and Ghostty, so the
     /// palette takes the editor convention instead of stealing it.
@@ -128,7 +127,6 @@ public enum Shortcut {
         ("tab.next", nextTab),
         ("tab.previous", previousTab),
         ("surface.board", board),
-        ("surface.router", router),
         ("surface.digest", digest),
         ("surface.palette", palette),
         ("surface.rooms", rooms),

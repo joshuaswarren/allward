@@ -53,7 +53,7 @@ final class KeyChordTests: XCTestCase {
         let advertised = [
             Shortcut.newTab.display, Shortcut.newWindow.display, Shortcut.closePane.display,
             Shortcut.splitRight.display, Shortcut.splitDown.display,
-            Shortcut.connectSSH.display, Shortcut.board.display, Shortcut.router.display,
+            Shortcut.connectSSH.display, Shortcut.board.display,
             Shortcut.digest.display, Shortcut.palette.display, Shortcut.rooms.display,
             Shortcut.teleport.display, Shortcut.settings.display,
         ]
