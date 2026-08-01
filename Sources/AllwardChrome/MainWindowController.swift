@@ -402,7 +402,8 @@ extension MainWindowController: NSToolbarDelegate {
     static let toolbarCommands: [ToolbarCommand] = [
         ToolbarCommand(
             id: NSToolbarItem.Identifier("allward.room"), label: "Room",
-            symbol: "square.on.square",
+            // `square.on.square` is the copy idiom; it read as a copy button.
+            symbol: "rectangle.3.group",
             help: "Switch Room. Rooms group sessions, hosts and a theme.",
             action: #selector(AllwardAppDelegate.showRoomSwitcher(_:))),
         ToolbarCommand(

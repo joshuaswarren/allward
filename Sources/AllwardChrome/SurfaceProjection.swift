@@ -713,6 +713,23 @@ public enum SurfaceProjection {
         return TokenColor(hex: id)
     }
 
+    /// What herdr is actually doing. Claiming it routes panes while reporting
+    /// degraded health says two different things at once.
+    private static func herdrDetail(_ health: AdapterHealth) -> String {
+        switch health {
+        case .none:
+            "No server found. Panes appear here when herdr is running."
+        case .degraded:
+            "Reachable, but not answering fully. Panes may be missing."
+        case .denied:
+            "Refused the connection. Check the herdr server's permissions."
+        case .error:
+            "Found, but the connection failed."
+        case .available:
+            "Routing panes into Allward."
+        }
+    }
+
     private static func roomTintChoices(_ rooms: [Room]) -> [RoomTintChoice] {
         var choices = tintPalette.compactMap { entry in
             TokenColor(hex: entry.hex).map {
@@ -783,9 +800,7 @@ public enum SurfaceProjection {
             IntegrationSetting(
                 id: "herdr",
                 name: "herdr",
-                detail: adapterHealth == .none
-                    ? "No server found. Panes appear here when herdr is running."
-                    : "\(adapterHealthLabel(adapterHealth)). Routing panes into Allward.",
+                detail: herdrDetail(adapterHealth),
                 commandLine: nil,
                 presentation: PresentationComposer.compose(adapterComposition),
                 subject: PresentationSubject(

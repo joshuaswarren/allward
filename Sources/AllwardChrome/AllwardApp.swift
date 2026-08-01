@@ -104,13 +104,23 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    /// herdr is optional. It is constructed only when a Room actually declares
-    /// an adapter server, and its absence is normal capability absence.
+    /// herdr is optional, and it was unreachable.
+    ///
+    /// The adapter was built only when a Room declared an adapter server, and
+    /// nothing in the interface can declare one - it had to be typed into the
+    /// configuration file. So Integrations reported "no herdr" to everyone,
+    /// including people with herdr running, because Allward had never looked.
+    ///
+    /// A herdr server on this Mac is the ordinary case, so that is tried
+    /// without being asked. A Room that names a host still wins, because that
+    /// is a deliberate statement about where the panes are.
     private static func makeAdapter(for configuration: Configuration) -> any MultiplexerAdapter {
-        let adapterHosts = configuration.rooms
+        let declared = configuration.rooms
             .filter { !$0.adapterServers.isEmpty }
             .flatMap { $0.hostAliases }
-        guard let endpoint = HerdrProcessExecutor.endpoint(host: adapterHosts.first) else {
+            .first
+        let host = declared ?? HostAlias(rawValue: "localhost")
+        guard let endpoint = HerdrProcessExecutor.endpoint(host: host) else {
             return NoMultiplexerAdapter()
         }
         return HerdrAdapter(client: HerdrProcessExecutor.makeClient(for: endpoint))
@@ -180,6 +190,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             }
             print("captured \(url.path)")
             print("toolbar items: \(items.joined(separator: ", "))")
+            print("perf: \(Perf.report())")
             print("panes: \(model.topology.panes.count) rooms: \(model.rooms.count)")
             print("tabs: \(model.tabOrder().count) layout: \(String(describing: model.currentLayout()))")
             print(window.layoutReport())

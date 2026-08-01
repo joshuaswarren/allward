@@ -141,7 +141,7 @@ private actor GlyphRasterizationQueue {
                 context.textPosition = CGPoint(x: x, y: CGFloat(height) - metrics.baseline)
                 CTLineDraw(line, context)
             case .fillCell:
-                drawFillingCell(line, width: width, height: height, in: context)
+                drawTiling(line, width: width, height: height, in: context)
             case .containUniformly:
                 drawContained(
                     line, fontAscent: fontAscent, width: width, height: height, in: context)
@@ -192,18 +192,34 @@ private actor GlyphRasterizationQueue {
         }
     }
 
-    private func drawFillingCell(
+    /// Draws a glyph that has to meet the cell edge, scaled by its em box.
+    ///
+    /// Scaling the *ink* to fill the cell is the obvious reading of "fill the
+    /// cell" and it is wrong: a horizontal rule's ink is a thin bar, so
+    /// stretching it to the full cell height turned every `─` into a solid
+    /// block, and every `│` into one too. Powerlevel10k's frame came out as
+    /// bars rather than lines.
+    ///
+    /// Box drawing, block elements and powerline separators are designed to
+    /// tile within the font's em box, touching its edges exactly where a
+    /// neighbour's stroke continues. So the em box is what gets scaled to the
+    /// cell; the glyph keeps its proportions inside it and the strokes line up.
+    private func drawTiling(
         _ line: CTLine, width: Int, height: Int, in context: CGContext
     ) {
-        let ink = CTLineGetImageBounds(line, context)
-        guard ink.width > 0.01, ink.height > 0.01 else {
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let advance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        let boxHeight = ascent + descent
+        guard advance > 0.01, boxHeight > 0.01 else {
             context.textPosition = CGPoint(x: 0, y: CGFloat(height) - metrics.baseline)
             CTLineDraw(line, context)
             return
         }
         context.saveGState()
-        context.scaleBy(x: CGFloat(width) / ink.width, y: CGFloat(height) / ink.height)
-        context.textPosition = CGPoint(x: -ink.minX, y: -ink.minY)
+        context.scaleBy(x: CGFloat(width) / advance, y: CGFloat(height) / boxHeight)
+        context.textPosition = CGPoint(x: 0, y: descent)
         CTLineDraw(line, context)
         context.restoreGState()
     }

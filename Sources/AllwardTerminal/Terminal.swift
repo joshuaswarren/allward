@@ -47,9 +47,14 @@ public final class Terminal {
 
     public func consume(_ bytes: ArraySlice<UInt8>) {
         guard !bytes.isEmpty else { return }
+        Perf.consumeCalls += 1
+        Perf.consumeBytes += bytes.count
+        let consumeStart = DispatchTime.now().uptimeNanoseconds
+        defer { Perf.consumeNanos &+= DispatchTime.now().uptimeNanoseconds &- consumeStart }
         var changed = false
         for byte in bytes {
             recognizer.consume(byte) { [self] operation in
+                Perf.opCalls += 1
                 apply(operation)
                 changed = true
             }
@@ -175,6 +180,11 @@ public final class Terminal {
     }
 
     public func snapshot() -> TerminalSnapshot {
+        Perf.snapshotCalls += 1
+        let snapshotStart = DispatchTime.now().uptimeNanoseconds
+        defer {
+            Perf.snapshotNanos &+= DispatchTime.now().uptimeNanoseconds &- snapshotStart
+        }
         let liveRows = grid.packedRows()
         let visibleLines: [GridLine]
         if scrollOffset == 0 {
@@ -313,8 +323,36 @@ public final class Terminal {
         markRow(grid.cursor.row)
     }
 
+    /// Printing one plain character used to cost about 7.7 microseconds.
+    ///
+    /// The slow path rebuilds the previous cluster as a `String`, concatenates
+    /// it with the new scalar and asks Swift to count graphemes over the
+    /// result, resolves width, then interns the character by hashing a String.
+    /// All of that exists for combining marks, emoji sequences and wide
+    /// characters, and none of it can change the answer for printable ASCII: it
+    /// is always width 1, never combines, and never attaches to what precedes
+    /// it. So ASCII takes none of it.
+    private func printASCII(_ byte: UInt8, text: String) {
+        let reference = graphemes.internASCII(byte)
+        let current = grid.currentAttributes
+        let scrolled = grid.print(
+            grapheme: reference,
+            width: 1,
+            attributes: attributes.intern(current),
+            protected: current.flags.contains(.protected),
+            autoWrap: modes.autoWrap,
+            insertMode: modes.insertMode
+        )
+        appendScrollback(scrolled)
+        commandReducer.appendCommandInput(text)
+    }
+
     private func applyPrintable(_ text: String) {
         guard let scalar = text.unicodeScalars.first else { return }
+        if scalar.value >= 0x20, scalar.value < 0x7F, text.utf8.count == 1 {
+            printASCII(UInt8(scalar.value), text: text)
+            return
+        }
         let previous = grid.previousClusterText(graphemes: graphemes)
         if resolver.shouldAttach(scalar, to: previous) {
             let resolved = resolver.resolve(previous + text)
@@ -334,13 +372,13 @@ public final class Terminal {
         let reference = graphemes.intern(resolved.text)
         let current = grid.currentAttributes
         let scrolled = grid.print(
+            grapheme: reference,
             width: resolved.width,
             attributes: attributes.intern(current),
             protected: current.flags.contains(.protected),
             autoWrap: modes.autoWrap,
             insertMode: modes.insertMode
         )
-        grid.replaceSentinelGrapheme(with: reference)
         appendScrollback(scrolled)
         commandReducer.appendCommandInput(text)
     }

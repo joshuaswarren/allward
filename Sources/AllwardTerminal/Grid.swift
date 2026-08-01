@@ -80,7 +80,8 @@ struct Grid: Sendable {
         autoWrap: Bool,
         graphemes: inout GraphemeTable
     ) -> Int? {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         var column = screen.cursor.column - 1
         var row = screen.cursor.row
         if screen.cursor.wrapPending { column = geometry.columns - 1 }
@@ -115,18 +116,19 @@ struct Grid: Sendable {
                 screen.cursor.wrapPending = false
             }
         }
-        active = screen
         return row
     }
 
     mutating func print(
+        grapheme: UInt32,
         width: Int,
         attributes: UInt32,
         protected: Bool,
         autoWrap: Bool,
         insertMode: Bool
     ) -> [GridLine] {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         var scrolled: [GridLine] = []
         if screen.cursor.wrapPending {
             if autoWrap { scrolled = wrap(&screen) }
@@ -135,13 +137,13 @@ struct Grid: Sendable {
         let cellWidth = geometry.columns == 1 ? 1 : min(max(width, 1), 2)
         if cellWidth == 2 && screen.cursor.column == geometry.columns - 1 {
             if autoWrap { scrolled += wrap(&screen) }
-            else { active = screen; return scrolled }
+            else { return scrolled }
         }
         if insertMode { shiftRight(&screen, row: screen.cursor.row, column: screen.cursor.column, count: cellWidth) }
         clearWideCell(at: screen.cursor.row, column: screen.cursor.column, screen: &screen)
         let lead = offset(row: screen.cursor.row, column: screen.cursor.column)
         screen.cells[lead] = PackedTerminalCell(
-            grapheme: UInt32.max,
+            grapheme: grapheme,
             attributes: attributes,
             span: cellWidth == 2 ? .wide : .narrow,
             isProtected: protected
@@ -158,18 +160,9 @@ struct Grid: Sendable {
             screen.cursor.column += cellWidth
             screen.cursor.wrapPending = false
         }
-        active = screen
         return scrolled
     }
 
-    mutating func replaceSentinelGrapheme(with reference: UInt32) {
-        var screen = active
-        for index in screen.cells.indices.reversed() where screen.cells[index].grapheme == UInt32.max {
-            screen.cells[index].grapheme = reference
-            active = screen
-            return
-        }
-    }
 
     mutating func carriageReturn() {
         updateCursor { $0.column = 0; $0.wrapPending = false }
@@ -180,12 +173,12 @@ struct Grid: Sendable {
     }
 
     mutating func lineFeed() -> [GridLine] {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         screen.cursor.wrapPending = false
         let lines: [GridLine]
         if screen.cursor.row == screen.scrollBottom { lines = scrollUp(&screen, count: 1) }
         else { screen.cursor.row = min(geometry.rows - 1, screen.cursor.row + 1); lines = [] }
-        active = screen
         return lines
     }
 
@@ -195,20 +188,20 @@ struct Grid: Sendable {
     }
 
     mutating func reverseIndex() {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         screen.cursor.wrapPending = false
         if screen.cursor.row == screen.scrollTop { scrollDown(&screen, count: 1) }
         else { screen.cursor.row = max(0, screen.cursor.row - 1) }
-        active = screen
     }
 
     mutating func moveVertical(_ delta: Int, originMode: Bool) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let lower = originMode ? screen.scrollTop : 0
         let upper = originMode ? screen.scrollBottom : geometry.rows - 1
         screen.cursor.row = min(upper, max(lower, screen.cursor.row + delta))
         screen.cursor.wrapPending = false
-        active = screen
     }
 
     mutating func moveHorizontal(_ delta: Int) {
@@ -220,14 +213,14 @@ struct Grid: Sendable {
     }
 
     mutating func position(row: Int, column: Int, originMode: Bool) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let base = originMode ? screen.scrollTop : 0
         let lower = originMode ? screen.scrollTop : 0
         let upper = originMode ? screen.scrollBottom : geometry.rows - 1
         screen.cursor.row = min(upper, max(lower, base + max(0, row - 1)))
         screen.cursor.column = min(geometry.columns - 1, max(0, column - 1))
         screen.cursor.wrapPending = false
-        active = screen
     }
 
     mutating func horizontalAbsolute(_ column: Int) { positionColumn(column - 1) }
@@ -236,7 +229,8 @@ struct Grid: Sendable {
     }
 
     mutating func eraseLine(_ mode: EraseMode, selective: Bool, attributes: UInt32) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let row = screen.cursor.row
         let range: ClosedRange<Int>
         switch mode {
@@ -245,11 +239,11 @@ struct Grid: Sendable {
         case .all: range = 0...(geometry.columns - 1)
         }
         erase(&screen, row: row, columns: range, selective: selective, attributes: attributes)
-        active = screen
     }
 
     mutating func eraseDisplay(_ mode: EraseMode, selective: Bool, attributes: UInt32) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         switch mode {
         case .after:
             erase(
@@ -301,11 +295,11 @@ struct Grid: Sendable {
             }
         case .scrollback: break
         }
-        active = screen
     }
 
     mutating func eraseCharacters(_ count: Int, selective: Bool, attributes: UInt32) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let end = min(geometry.columns - 1, screen.cursor.column + max(1, count) - 1)
         erase(
             &screen,
@@ -314,17 +308,17 @@ struct Grid: Sendable {
             selective: selective,
             attributes: attributes
         )
-        active = screen
     }
 
     mutating func insertCharacters(_ count: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         shiftRight(&screen, row: screen.cursor.row, column: screen.cursor.column, count: max(1, count))
-        active = screen
     }
 
     mutating func deleteCharacters(_ count: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let rowStart = offset(row: screen.cursor.row, column: 0)
         let start = rowStart + screen.cursor.column
         let amount = min(max(1, count), geometry.columns - screen.cursor.column)
@@ -335,58 +329,57 @@ struct Grid: Sendable {
             screen.cells[index] = .blank
         }
         if start < screen.cells.count { normalizeWideCells(&screen, row: screen.cursor.row) }
-        active = screen
     }
 
     mutating func insertLines(_ count: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         guard (screen.scrollTop...screen.scrollBottom).contains(screen.cursor.row) else { return }
         scrollDown(&screen, from: screen.cursor.row, to: screen.scrollBottom, count: count)
-        active = screen
     }
 
     mutating func deleteLines(_ count: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         guard (screen.scrollTop...screen.scrollBottom).contains(screen.cursor.row) else { return }
         _ = scrollUp(&screen, from: screen.cursor.row, to: screen.scrollBottom, count: count)
-        active = screen
     }
 
     mutating func scrollUp(_ count: Int) -> [GridLine] {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let result = scrollUp(&screen, count: count)
-        active = screen
         return result
     }
 
     mutating func scrollDown(_ count: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         scrollDown(&screen, count: count)
-        active = screen
     }
 
     mutating func setMargins(top: Int, bottom: Int) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let resolvedBottom = bottom == 0 ? geometry.rows : bottom
         guard top >= 1, resolvedBottom <= geometry.rows, top < resolvedBottom else { return }
         screen.scrollTop = top - 1
         screen.scrollBottom = resolvedBottom - 1
         screen.cursor = CursorState(row: 0, column: 0, visible: screen.cursor.visible, shape: screen.cursor.shape)
-        active = screen
     }
 
     mutating func saveCursor(originMode: Bool) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         screen.savedCursor = SavedCursor(cursor: screen.cursor, attributes: screen.attributes, originMode: originMode)
-        active = screen
     }
 
     mutating func restoreCursor() -> Bool? {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         guard let saved = screen.savedCursor else { return nil }
         screen.cursor = saved.cursor
         screen.attributes = saved.attributes
-        active = screen
         return saved.originMode
     }
 
@@ -415,23 +408,23 @@ struct Grid: Sendable {
     }
 
     mutating func clearActive() {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         screen.cells = Array(repeating: .blank, count: geometry.rows * geometry.columns)
         screen.rowIDs = (0..<geometry.rows).map { _ in allocateLineID() }
         screen.softWrapped = Array(repeating: false, count: geometry.rows)
         screen.cursor = CursorState()
         screen.scrollTop = 0
         screen.scrollBottom = geometry.rows - 1
-        active = screen
     }
 
     mutating func alignmentTest(grapheme: UInt32, attributes: UInt32) {
-        var screen = active
+        var screen = takeActive()
+        defer { putActive(screen) }
         let cell = PackedTerminalCell(
             grapheme: grapheme, attributes: attributes, span: .narrow, isProtected: false
         )
         screen.cells = Array(repeating: cell, count: geometry.rows * geometry.columns)
-        active = screen
     }
 
 
@@ -553,6 +546,27 @@ struct Grid: Sendable {
     private var active: ScreenStorage {
         get { alternateActive ? alternate : primary }
         set { if alternateActive { alternate = newValue } else { primary = newValue } }
+    }
+
+    /// Moves the active screen out so a caller owns it outright.
+    ///
+    /// `var screen = active` reads as a local working copy, and that is exactly
+    /// what it was: the screen stayed referenced by `primary`, so the first
+    /// cell written copied the entire grid. Every printed character paid a
+    /// full-screen memcpy, twice - once here and once in the sentinel pass -
+    /// which is where 99% of a 2,000,000-line `cat` went. Moving the storage
+    /// out leaves the buffer uniquely referenced, so writes land in place.
+    ///
+    /// Always paired with `putActive` on every exit path, or the screen is
+    /// left empty behind you.
+    private mutating func takeActive() -> ScreenStorage {
+        var placeholder = ScreenStorage(geometry: TerminalGeometry(columns: 0, rows: 0), firstLineID: 0)
+        if alternateActive { swap(&placeholder, &alternate) } else { swap(&placeholder, &primary) }
+        return placeholder
+    }
+
+    private mutating func putActive(_ screen: ScreenStorage) {
+        if alternateActive { alternate = screen } else { primary = screen }
     }
 
     private func offset(row: Int, column: Int) -> Int { row * geometry.columns + column }

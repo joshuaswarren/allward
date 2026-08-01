@@ -261,6 +261,9 @@ public final class TerminalPaneView: NSView {
     public private(set) var isPaneFocused = true
 
     public func apply(_ snapshot: TerminalSnapshot, focused: Bool) {
+        Perf.applyCalls += 1
+        let applyStart = DispatchTime.now().uptimeNanoseconds
+        defer { Perf.applyNanos &+= DispatchTime.now().uptimeNanoseconds &- applyStart }
         let previousBell = self.snapshot?.bellCount ?? snapshot.bellCount
         self.snapshot = snapshot
         if snapshot.bellCount > previousBell { ringBell() }
@@ -268,9 +271,12 @@ public final class TerminalPaneView: NSView {
         metalLayer.opacity = focused ? 1 : Self.unfocusedOpacity
         focusRing.isHidden = focused == false
         focusRing.borderColor = Self.focusRingColor(palette: palette, theme: theme).cgColor
-        renderer?.update(
-            snapshot: snapshot, palette: palette, theme: theme, focused: focused)
-        setAccessibilityNeedsRefresh()
+        Perf.renderCalls += 1
+        Perf.time(&Perf.renderNanos) {
+            renderer?.update(
+                snapshot: snapshot, palette: palette, theme: theme, focused: focused)
+        }
+        setAccessibilityNeedsRefresh(damage: snapshot.damage)
     }
 
     public func setFont(family: String?, size: Double) {
@@ -436,7 +442,28 @@ public final class TerminalPaneView: NSView {
     /// Rebuilt when the snapshot changes, because every text query below is
     /// answered in character offsets and recomputing them per query would make
     /// VoiceOver navigation quadratic in the size of the screen.
-    private var textProjection: TerminalTextProjection = .empty
+    private var cachedProjection: TerminalTextProjection?
+    private var cachedProjectionGeneration: Generation?
+
+    /// The text projection, built when something actually reads it.
+    ///
+    /// This used to be rebuilt on every snapshot: a string per row, an offset
+    /// array per row, and one joined copy of the whole screen - then compared
+    /// against the previous copy, character by character, to decide whether to
+    /// post a notification. Per frame. A 2,000,000-line `cat` went from 0.95s
+    /// to 15.6s, and anything with a spinner hitched continuously. None of that
+    /// work is needed unless an assistive client asks a question, so now it
+    /// only happens when one does.
+    private var textProjection: TerminalTextProjection {
+        guard let snapshot else { return .empty }
+        if let cachedProjection, cachedProjectionGeneration == snapshot.generation {
+            return cachedProjection
+        }
+        let built = TerminalTextProjection(snapshot: snapshot)
+        cachedProjection = built
+        cachedProjectionGeneration = snapshot.generation
+        return built
+    }
     private var pendingAnnouncement: DispatchWorkItem?
 
     public override func accessibilityValue() -> Any? { textProjection.text }
@@ -558,17 +585,11 @@ public final class TerminalPaneView: NSView {
     /// immediately.
     private static let announcementInterval: TimeInterval = 0.4
 
-    private func setAccessibilityNeedsRefresh() {
-        let previous = textProjection
-        textProjection = snapshot.map(TerminalTextProjection.init) ?? .empty
-
-        if textProjection.selectedRange != previous.selectedRange {
+    private func setAccessibilityNeedsRefresh(damage: Damage) {
+        if damage.cursorMoved || damage.selectionChanged {
             NSAccessibility.post(element: self, notification: .selectedTextChanged)
         }
-        if textProjection.cursorRange != previous.cursorRange {
-            NSAccessibility.post(element: self, notification: .selectedTextChanged)
-        }
-        guard textProjection.text != previous.text else { return }
+        guard damage.fullRedraw || !damage.rows.isEmpty else { return }
         scheduleContentAnnouncement()
     }
 
