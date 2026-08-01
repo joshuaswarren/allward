@@ -179,6 +179,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print(window.layoutReport())
             print("menu: \(Self.menuReport())")
             print("grids: \(model.gridReport())")
+            print("rows:\n\(model.rowDump())")
             print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
             if let message = model.lastActionMessage { print("note: \(message)") }
             exit(0)

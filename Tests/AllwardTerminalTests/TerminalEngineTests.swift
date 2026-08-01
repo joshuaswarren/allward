@@ -200,6 +200,45 @@ final class TerminalEngineTests: XCTestCase {
     XCTAssertEqual(terminal.selectedText(), "bcde")
   }
 
+  /// A window that grows and shrinks must not disturb what the shell drew.
+  ///
+  /// Opening a tab shrinks every other pane and closing it grows them back.
+  /// When the resize evicted live rows into scrollback and restored them on the
+  /// way out, a shell that redraws its prompt on SIGWINCH ended up with two
+  /// prompts on screen, which is what a user actually saw.
+  func testResizeSpendsBlankRowsInsteadOfEvictingLiveContent() {
+    let terminal = terminal(columns: 20, rows: 10)
+    send("first\r\nsecond", to: terminal)
+    XCTAssertEqual(terminal.snapshot().scrollbackCount, 0)
+
+    terminal.resize(to: TerminalGeometry(columns: 20, rows: 8))
+    var snapshot = terminal.snapshot()
+    XCTAssertEqual(
+      snapshot.scrollbackCount, 0,
+      "shrinking into blank space must not push live rows into scrollback")
+    XCTAssertEqual(snapshot.plainText(row: 0), "first")
+    XCTAssertEqual(snapshot.plainText(row: 1), "second")
+
+    terminal.resize(to: TerminalGeometry(columns: 20, rows: 10))
+    snapshot = terminal.snapshot()
+    XCTAssertEqual(snapshot.plainText(row: 0), "first")
+    XCTAssertEqual(snapshot.plainText(row: 1), "second")
+    let occurrences = (0 ..< snapshot.geometry.rows)
+      .map { snapshot.plainText(row: $0) }
+      .filter { $0 == "first" }
+    XCTAssertEqual(occurrences.count, 1, "growing back must not duplicate a line")
+  }
+
+  func testContentStaysAtTheTopWhenTheWindowGrows() {
+    let terminal = terminal(columns: 20, rows: 6)
+    send("only", to: terminal)
+    terminal.resize(to: TerminalGeometry(columns: 20, rows: 12))
+    let snapshot = terminal.snapshot()
+    XCTAssertEqual(
+      snapshot.plainText(row: 0), "only",
+      "a grown window adds space below the content, not above it")
+  }
+
   func testMalformedCSIWithTooManyParametersResynchronizes() {
     let terminal = terminal()
     let malformed = "\u{1B}[" + Array(repeating: "1;", count: 200).joined() + "mOK"

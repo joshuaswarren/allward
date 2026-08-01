@@ -492,7 +492,10 @@ struct Grid: Sendable {
         var storage = ScreenStorage(geometry: geometry, firstLineID: nextLineRaw)
         nextLineRaw += UInt64(geometry.rows)
         let visible = Array(rows.suffix(geometry.rows))
-        let rowOffset = geometry.rows - visible.count
+        // Content sits at the top and the spare space goes below it. Pushing
+        // short content to the bottom instead makes a grown window drop its
+        // prompt to the last row, which is not where the shell left it.
+        let rowOffset = 0
         for (sourceIndex, line) in visible.enumerated() {
             let targetRow = rowOffset + sourceIndex
             storage.rowIDs[targetRow] = line.id

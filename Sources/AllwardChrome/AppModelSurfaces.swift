@@ -107,6 +107,21 @@ extension AppModel {
         await surfaceTeleport(to: item.target, adapterSession: adapterSession(for: item.id))
     }
 
+    /// The non-blank rows of the focused pane, so a redraw complaint can be
+    /// checked against what the grid really holds.
+    public func rowDump() -> String {
+        guard let pane = focusedPane, let snapshot = paneView(for: pane)?.snapshot
+        else { return "no pane" }
+        var lines: [String] = ["scrollback=\(snapshot.scrollbackCount) offset=\(snapshot.scrollOffset)"]
+        for row in 0 ..< snapshot.geometry.rows {
+            let text = snapshot.plainText(row: row)
+            if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.append("r\(row): \(text.prefix(60))")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The grid each pane's terminal actually holds, and where its content
     /// starts, so a claim about prompt position is a measurement.
     public func gridReport() -> String {

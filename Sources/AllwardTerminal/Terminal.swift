@@ -57,6 +57,31 @@ public final class Terminal {
         if changed { publishGeneration() }
     }
 
+    /// The rows a resized viewport should show.
+    ///
+    /// Taking the last `rows` lines looks right but is not: when a screen has
+    /// blank space below the cursor, shrinking pushes live content up into
+    /// scrollback and growing pulls it back. A shell that redraws its prompt on
+    /// SIGWINCH — which Powerlevel10k and friends do — then has its old prompt
+    /// restored above the new one, and the user sees it twice. Real terminals
+    /// spend the trailing blank rows first, so content stays put and only the
+    /// empty space below it changes size.
+    static func viewportRange(
+        in lines: [GridLine], rows: Int, cursorLine: LineID
+    ) -> Range<Int> {
+        guard !lines.isEmpty else { return 0 ..< 0 }
+        let lastContent =
+            lines.lastIndex { line in
+                line.id == cursorLine
+                    || line.cells.contains { $0.span != .continuation && $0.grapheme != 0 }
+            } ?? lines.count - 1
+        // Take a full viewport where one exists, starting no later than the
+        // content, so shrinking spends the blank rows below rather than
+        // evicting live lines into scrollback.
+        let end = min(lines.count, max(lastContent + 1, rows))
+        return max(0, end - rows) ..< end
+    }
+
     public func resize(to newGeometry: TerminalGeometry) {
         guard newGeometry != geometry else { return }
         let oldColumnCount = geometry.columns
@@ -79,7 +104,13 @@ public final class Terminal {
         let cursorAnchor = SelectionAnchor(line: cursorLine, graphemeOffset: cursorOffset)
         let activeSource = modes.alternateScreen ? liveRows : scrollback.lines + liveRows
         let activeReflow = reflow(activeSource, columns: newGeometry.columns)
-        let activeViewport = Array(activeReflow.suffix(newGeometry.rows))
+        // Viewport and history are two halves of one split, so they are cut at
+        // the same index. Deriving history by dropping from the end instead
+        // trims the trailing blanks and leaves the lines above the viewport in
+        // both places.
+        let activeRange = Self.viewportRange(
+            in: activeReflow, rows: newGeometry.rows, cursorLine: cursorLine)
+        let activeViewport = Array(activeReflow[activeRange])
         var inactiveViewport: [GridLine]?
         let history: [GridLine]
         if modes.alternateScreen {
@@ -90,7 +121,7 @@ public final class Terminal {
             history = Array(primaryReflow.dropLast(min(newGeometry.rows, primaryReflow.count)))
             inactiveViewport = Array(primaryReflow.suffix(newGeometry.rows))
         } else {
-            history = Array(activeReflow.dropLast(min(newGeometry.rows, activeReflow.count)))
+            history = Array(activeReflow[0 ..< activeRange.lowerBound])
         }
         let hiddenCursorOffset = history.filter { $0.id == cursorAnchor.line }.reduce(0) {
             $0 + $1.cells.filter { $0.span != .continuation }.count
