@@ -25,6 +25,7 @@ import argparse
 import json
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -184,12 +185,20 @@ def fixture_arguments(
 ) -> list[str]:
     """Compiler arguments that put exactly the MAS closure on the search path.
 
+    The scratch directory is rebuilt from empty every run. A previous build leaves
+    `.swiftmodule` files for targets outside the MAS closure, and those made a
+    fixture compile and so report a violation that no longer existed. A proof that
+    reads stale artifacts is not a proof.
+
     A Swift module that wraps a C target cannot be imported without that target's
     generated module map, so the C targets inside the closure contribute their
     own arguments. Deriving them from the closure rather than naming them keeps
     the fixtures honest: once a C target leaves the MAS graph its map stops being
     offered, and the fixture then fails because the module is genuinely absent.
     """
+    # Guarded: only ever a `.build-` directory inside the repository.
+    if scratch.is_dir() and scratch.parent == ROOT and scratch.name.startswith(".build-"):
+        shutil.rmtree(scratch)
     build = run(
         [
             "swift",

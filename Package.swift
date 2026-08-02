@@ -42,7 +42,7 @@ import PackageDescription
             name: "AllwardControl",
             dependencies: [
                 "AllwardCore", "AllwardTerminal", "AllwardRemote", "AllwardMultiplexer",
-                "AllwardSurfaces", "AllwardRooms", "AllwardConfig", "AllwardLocalPTY", "AllwardSSH",
+                "AllwardSurfaces", "AllwardRooms", "AllwardConfig", "AllwardSSH",
             ]
         ),
         .target(name: "AllwardConcierge", dependencies: ["AllwardCore", "AllwardControl"]),
@@ -59,7 +59,7 @@ import PackageDescription
                 "AllwardCore", "AllwardDesign", "AllwardRenderer", "AllwardControl",
                 "AllwardSurfaces", "AllwardRooms", "AllwardSpeech", "AllwardIntelligence",
                 "AllwardConcierge", "AllwardConfig", "AllwardProtocol",
-                "AllwardLocalPublisherEndpoint", "AllwardHerdr", "AllwardMCP",
+                "AllwardHerdr", "AllwardMCP",
             ]
         ),
         .executableTarget(name: "allward", dependencies: ["AllwardChrome"]),
