@@ -50,7 +50,12 @@ public struct EscapeRecognizer: Sendable {
                 resetSequence()
                 state = .ground
                 return
-            case .oscIgnore, .oscIgnoreEscape, .dcsString, .dcsEscape, .ignoredString, .ignoredEscape:
+            case .dcsString, .dcsEscape:
+                emitDCS(emit: emit)
+                resetSequence()
+                state = .ground
+                return
+            case .oscIgnore, .oscIgnoreEscape, .ignoredString, .ignoredEscape:
                 resetSequence()
                 state = .ground
                 return
@@ -205,6 +210,8 @@ public struct EscapeRecognizer: Sendable {
             if stringState == .oscString {
                 lastStringTerminator = .stringTerminator
                 emitOSC(emit: emit)
+            } else if stringState == .dcsString {
+                emitDCS(emit: emit)
             }
             resetSequence(); state = .ground; return
         }
@@ -259,6 +266,10 @@ public struct EscapeRecognizer: Sendable {
         case ([], 0x48): emit(.setTabStop)
         case ([], 0x63): emit(.reset)
         case ([0x23], 0x38): emit(.alignmentTest)
+        case ([0x28], _), ([0x29], _), ([0x2A], _), ([0x2B], _):
+            // Character set designation G0..G3 (e.g. ESC ( B, ESC ( 0).
+            // Consumed cleanly to prevent corrupting text output.
+            emit(.noOp)
         default: emit(.noOp)
         }
     }
@@ -290,7 +301,12 @@ public struct EscapeRecognizer: Sendable {
         case 0x53: emit(.scrollUp(first))
         case 0x54: emit(.scrollDown(first))
         case 0x72: emit(.setVerticalMargins(top: first, bottom: parameter(1, default: 0, zeroIsDefault: false)))
-        case 0x73: parameters.count > 1 ? emit(.ignoreHorizontalMargins) : emit(.saveCursor)
+        case 0x73:
+            if privateMarker == nil && (parameters.count > 1 || parameterSeparators.contains(0x3B)) {
+                emit(.setHorizontalMargins(left: first, right: parameter(1, default: 0, zeroIsDefault: false)))
+            } else {
+                emit(.saveCursor)
+            }
         case 0x75: emit(.restoreCursor)
         case 0x6D: emit(.sgr(Self.parseSGR(parameters, separators: parameterSeparators)))
         case 0x68, 0x6C:
@@ -307,19 +323,64 @@ public struct EscapeRecognizer: Sendable {
             }
         case 0x49: emit(.cursorForwardTab(first))
         case 0x5A: emit(.cursorBackwardTab(first))
+        case 0x61: emit(.cursorForward(first))
+        case 0x62: emit(.repeatCharacter(first))
         case 0x63:
-            let response = privateMarker == 0x3E ? "\u{1B}[>1;0;0c" : "\u{1B}[?62;22c"
-            emit(.respond(Array(response.utf8)))
+            if privateMarker == 0x3E {
+                emit(.respond(Array("\u{1B}[>41;386;0c".utf8)))
+            } else if privateMarker == 0x3D {
+                emit(.respond(Array("\u{1B}P!|00000000\u{1B}\\".utf8)))
+            } else {
+                emit(.respond(Array("\u{1B}[?62;22c".utf8)))
+            }
+        case 0x65: emit(.cursorDown(first))
         case 0x6E:
             let request = parameter(0, default: 0, zeroIsDefault: false)
-            if request == 5 {
+            switch request {
+            case 5:
                 let response = privateMarker == 0x3F ? "\u{1B}[?0n" : "\u{1B}[0n"
                 emit(.respond(Array(response.utf8)))
+            case 6: emit(.reportCursorPosition(privateMode: privateMarker == 0x3F))
+            case 15: emit(.respond(Array("\u{1B}[?13n".utf8)))
+            case 25: emit(.respond(Array("\u{1B}[?23n".utf8)))
+            case 26: emit(.respond(Array("\u{1B}[?27;1;0;0n".utf8)))
+            default: break
             }
-            if request == 6 { emit(.reportCursorPosition(privateMode: privateMarker == 0x3F)) }
-        case 0x71 where intermediates == [0x22]:
-            emit(.setProtection(parameter(0, default: 0, zeroIsDefault: false) == 1))
+        case 0x70:
+            if intermediates == [0x24] {
+                emit(.reportMode(mode: parameter(0, default: 0, zeroIsDefault: false), isPrivate: privateMarker == 0x3F))
+            } else if intermediates == [0x21] {
+                emit(.softReset)
+            }
+        case 0x71:
+            if privateMarker == 0x3E && intermediates.isEmpty {
+                emit(.reportTerminalVersion)
+            } else if intermediates == [0x20] {
+                let styleVal = parameter(0, default: 1, zeroIsDefault: true)
+                let style = CursorStyle(rawValue: styleVal) ?? .blinkingBlock
+                emit(.setCursorStyle(style))
+            } else if intermediates == [0x22] {
+                emit(.setProtection(parameter(0, default: 0, zeroIsDefault: false) == 1))
+            }
+        case 0x74:
+            let request = parameter(0, default: 0, zeroIsDefault: false)
+            switch request {
+            case 14: emit(.respond(Array("\u{1B}[4;768;1024t".utf8)))
+            case 18: emit(.respond(Array("\u{1B}[8;24;80t".utf8)))
+            case 19: emit(.respond(Array("\u{1B}[9;24;80t".utf8)))
+            default: emit(.noOp)
+            }
         default: emit(.noOp)
+        }
+    }
+
+    private mutating func emitDCS(emit: (TerminalOperation) -> Void) {
+        if payload.starts(with: [0x24, 0x71]) {
+            let setting = String(decoding: payload.dropFirst(2), as: UTF8.self)
+            emit(.reportSetting(setting))
+        } else if payload.starts(with: [0x2B, 0x71]) {
+            let cap = String(decoding: payload.dropFirst(2), as: UTF8.self)
+            emit(.reportTermcap(cap))
         }
     }
 
@@ -421,20 +482,11 @@ public struct EscapeRecognizer: Sendable {
             .split(separator: ";", omittingEmptySubsequences: false).map(String.init)
         guard let command = fields.first.flatMap(Int.init) else { return }
         switch command {
-        case 0, 1, 2: emit(.setTitle(fields.dropFirst().joined(separator: ";")))
-        case 7: emit(.setWorkingDirectory(fields.dropFirst().joined(separator: ";")))
-        case 8:
-            let uri = fields.dropFirst(2).joined(separator: ";")
-            emit(.setHyperlink(parameters: fields.count > 1 ? fields[1] : "", uri: uri.isEmpty ? nil : uri))
-        case 133:
-            guard fields.count > 1, let phase = CommandPhase(rawValue: fields[1]) else { return }
-            var metadata: [String: String] = [:]
-            for field in fields.dropFirst(2) {
-                let pair = field.split(separator: "=", maxSplits: 1).map(String.init)
-                if pair.count == 2 { metadata[pair[0]] = pair[1] }
-                else if phase == .finished, metadata["exit"] == nil { metadata["exit"] = field }
-            }
-            emit(.commandMarker(OSCCommandMarker(phase: phase, parameters: metadata)))
+        case 0, 1, 2, 20:
+            emit(.setTitle(fields.dropFirst().joined(separator: ";")))
+        case 3:
+            // OSC 3 (set X server property) is obsolete and safely ignored.
+            break
         case 4:
             var index = 1
             while index < fields.count {
@@ -445,6 +497,61 @@ public struct EscapeRecognizer: Sendable {
                 else { emit(.setPalette(index: paletteIndex, value: value)) }
                 index += 2
             }
+        case 5, 6, 105, 106:
+            // Special color change/query/reset (VT220 bold/underline/blink/reverse overrides).
+            // Safely ignored because Allward handles cell formatting via SGR attributes.
+            break
+        case 7:
+            emit(.setWorkingDirectory(fields.dropFirst().joined(separator: ";")))
+        case 8:
+            let uri = fields.dropFirst(2).joined(separator: ";")
+            emit(.setHyperlink(parameters: fields.count > 1 ? fields[1] : "", uri: uri.isEmpty ? nil : uri))
+        case 9:
+            emit(.notification(title: "", body: fields.dropFirst().joined(separator: ";")))
+        case 10...19:
+            // Dynamic colors: consecutive slots starting from command.
+            // OSC 10;#fff;#000 sets slot 10 to #fff and slot 11 to #000.
+            let params = Array(fields.dropFirst())
+            if params.isEmpty { break }
+            for (offset, value) in params.enumerated() {
+                let slot = command + offset
+                guard slot <= 19 else { break }
+                if value == "?" {
+                    emit(.reportDynamicColor(slot: slot, terminator: lastStringTerminator))
+                } else if !value.isEmpty {
+                    emit(.setDynamicColor(slot: slot, value: value))
+                }
+            }
+        case 21:
+            let value = fields.dropFirst().joined(separator: ";")
+            if value == "?" {
+                emit(.reportTitle(terminator: lastStringTerminator))
+            } else if !value.isEmpty {
+                emit(.setTitle(value))
+            }
+        case 22:
+            emit(.setPointerShape(fields.dropFirst().joined(separator: ";")))
+        case 30, 31, 51:
+            // Legacy rxvt / emacs font & shell integration commands. Safely ignored.
+            break
+        case 46:
+            // SECURITY HAZARD: OSC 46 (change logfile name) MUST NEVER create or write to a file.
+            // Safely ignored to prevent untrusted pty programs from writing to arbitrary paths.
+            break
+        case 50:
+            let value = fields.dropFirst().joined(separator: ";")
+            if value == "?" {
+                emit(.reportFont(terminator: lastStringTerminator))
+            } else {
+                emit(.setFont(value))
+            }
+        case 52:
+            guard fields.count > 2 else { return }
+            let payload = fields.dropFirst(2).joined(separator: ";")
+            emit(.clipboard(selection: fields[1], base64: payload == "?" ? nil : payload))
+        case 60:
+            // Tektronix vector graphics control. Safely ignored.
+            break
         case 104:
             if fields.count > 1, !fields[1].isEmpty {
                 for field in fields.dropFirst() {
@@ -453,29 +560,38 @@ public struct EscapeRecognizer: Sendable {
             } else {
                 emit(.resetPalette(index: nil))
             }
-        case 10, 11, 12:
-            // A `?` here is a question, not a colour. Treating it as a value
-            // left the asker with no answer at all.
-            let value = fields.dropFirst().joined(separator: ";")
-            if value == "?" {
-                emit(.reportDynamicColor(slot: command, terminator: lastStringTerminator))
+        case 110...119:
+            let startSlot = command - 100
+            let params = Array(fields.dropFirst())
+            if params.isEmpty {
+                emit(.resetDynamicColor(slot: startSlot))
+            } else {
+                for (offset, _) in params.enumerated() {
+                    let slot = startSlot + offset
+                    if slot <= 19 { emit(.resetDynamicColor(slot: slot)) }
+                }
             }
-            else if !value.isEmpty { emit(.setDynamicColor(slot: command, value: value)) }
-        case 110, 111, 112:
-            emit(.resetDynamicColor(slot: command - 100))
-        case 52:
-            guard fields.count > 2 else { return }
-            let payload = fields.dropFirst(2).joined(separator: ";")
-            emit(.clipboard(selection: fields[1], base64: payload == "?" ? nil : payload))
-        case 9:
-            emit(.notification(title: "", body: fields.dropFirst().joined(separator: ";")))
+        case 133:
+            guard fields.count > 1, let phase = CommandPhase(rawValue: fields[1]) else { return }
+            var metadata: [String: String] = [:]
+            for field in fields.dropFirst(2) {
+                let pair = field.split(separator: "=", maxSplits: 1).map(String.init)
+                if pair.count == 2 { metadata[pair[0]] = pair[1] }
+                else if phase == .finished, metadata["exit"] == nil { metadata["exit"] = field }
+            }
+            emit(.commandMarker(OSCCommandMarker(phase: phase, parameters: metadata)))
         case 777:
             // rxvt's form: `777;notify;title;body`.
             guard fields.count > 2, fields[1] == "notify" else { return }
             emit(
                 .notification(
                     title: fields[2], body: fields.dropFirst(3).joined(separator: ";")))
-        default: break
+        case 1337:
+            // iTerm2 proprietary escape sequences. Safely ignored.
+            break
+        default:
+            // Uncatalogued OSC sequence. Safely ignored without side effects.
+            break
         }
     }
 }

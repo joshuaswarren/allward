@@ -14,6 +14,13 @@ public struct DynamicColors: Hashable, Sendable {
         case foreground = 10
         case background = 11
         case cursor = 12
+        case pointerForeground = 13
+        case pointerBackground = 14
+        case tektronixForeground = 15
+        case tektronixBackground = 16
+        case highlightBackground = 17
+        case tektronixCursor = 18
+        case highlightForeground = 19
     }
 
     public struct RGB: Hashable, Sendable {
@@ -99,9 +106,27 @@ public struct DynamicColors: Hashable, Sendable {
     public init(
         foreground: RGB = RGB(0xd7, 0xdc, 0xe3),
         background: RGB = RGB(0x0f, 0x12, 0x16),
-        cursor: RGB = RGB(0xff, 0xc2, 0x33)
+        cursor: RGB = RGB(0xff, 0xc2, 0x33),
+        pointerForeground: RGB = RGB(0xd7, 0xdc, 0xe3),
+        pointerBackground: RGB = RGB(0x0f, 0x12, 0x16),
+        tektronixForeground: RGB = RGB(0xd7, 0xdc, 0xe3),
+        tektronixBackground: RGB = RGB(0x0f, 0x12, 0x16),
+        highlightBackground: RGB = RGB(0x3e, 0x44, 0x51),
+        tektronixCursor: RGB = RGB(0xff, 0xc2, 0x33),
+        highlightForeground: RGB = RGB(0xd7, 0xdc, 0xe3)
     ) {
-        defaults = [.foreground: foreground, .background: background, .cursor: cursor]
+        defaults = [
+            .foreground: foreground,
+            .background: background,
+            .cursor: cursor,
+            .pointerForeground: pointerForeground,
+            .pointerBackground: pointerBackground,
+            .tektronixForeground: tektronixForeground,
+            .tektronixBackground: tektronixBackground,
+            .highlightBackground: highlightBackground,
+            .tektronixCursor: tektronixCursor,
+            .highlightForeground: highlightForeground,
+        ]
     }
 
     public subscript(slot: Slot) -> RGB {

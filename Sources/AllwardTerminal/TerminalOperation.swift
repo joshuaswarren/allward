@@ -24,8 +24,18 @@ public enum TabClearMode: Int, Hashable, Sendable {
     case all = 3
 }
 
+public enum CursorStyle: Int, Hashable, Sendable, Codable {
+    case blinkingBlock = 1
+    case steadyBlock = 2
+    case blinkingUnderline = 3
+    case steadyUnderline = 4
+    case blinkingBar = 5
+    case steadyBar = 6
+}
+
 public enum TerminalMode: Int, Hashable, Sendable {
     case applicationCursorKeys = 1
+    case reverseVideo = 5
     case origin = 6
     case autoWrap = 7
     case cursorBlink = 12
@@ -35,7 +45,10 @@ public enum TerminalMode: Int, Hashable, Sendable {
     case mouseButtonMotion = 1002
     case mouseAnyMotion = 1003
     case focusReporting = 1004
+    case utf8Mouse = 1005
     case sgrMouse = 1006
+    case urxvtMouse = 1015
+    case pixelMouse = 1016
     case alternateScreen1047 = 1047
     case saveCursor = 1048
     case alternateScreen1049 = 1049
@@ -96,6 +109,7 @@ public enum TerminalOperation: Hashable, Sendable {
     case cursorForwardTab(Int)
     case cursorBackwardTab(Int)
     case setTitle(String)
+    case reportTitle(terminator: StringTerminator)
     case setWorkingDirectory(String)
     case setHyperlink(parameters: String, uri: String?)
     case commandMarker(OSCCommandMarker)
@@ -110,6 +124,9 @@ public enum TerminalOperation: Hashable, Sendable {
     case reportPaletteColor(index: UInt8, terminator: StringTerminator)
     case clipboard(selection: String, base64: String?)
     case notification(title: String, body: String)
+    case setPointerShape(String)
+    case setFont(String)
+    case reportFont(terminator: StringTerminator)
     case respond([UInt8])
     case reset
     case reportCursorPosition(privateMode: Bool)
@@ -119,4 +136,12 @@ public enum TerminalOperation: Hashable, Sendable {
     case nextLine
     case setProtection(Bool)
     case noOp
+    case reportMode(mode: Int, isPrivate: Bool)
+    case reportTerminalVersion
+    case setCursorStyle(CursorStyle)
+    case setHorizontalMargins(left: Int, right: Int)
+    case repeatCharacter(Int)
+    case softReset
+    case reportSetting(String)
+    case reportTermcap(String)
 }

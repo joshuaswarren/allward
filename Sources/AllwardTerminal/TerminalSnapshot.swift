@@ -212,6 +212,7 @@ public struct TerminalModes: Hashable, Sendable, Codable {
     public var mouseEncoding: MouseEncoding
     public var focusReporting: Bool
     public var synchronizedOutput: Bool
+    public var cursorStyle: CursorStyle
 
     public init(
         alternateScreen: Bool = false,
@@ -225,7 +226,8 @@ public struct TerminalModes: Hashable, Sendable, Codable {
         mouseTracking: MouseTracking = .off,
         mouseEncoding: MouseEncoding = .x10,
         focusReporting: Bool = false,
-        synchronizedOutput: Bool = false
+        synchronizedOutput: Bool = false,
+        cursorStyle: CursorStyle = .blinkingBlock
     ) {
         self.alternateScreen = alternateScreen
         self.applicationCursorKeys = applicationCursorKeys
@@ -239,6 +241,7 @@ public struct TerminalModes: Hashable, Sendable, Codable {
         self.mouseEncoding = mouseEncoding
         self.focusReporting = focusReporting
         self.synchronizedOutput = synchronizedOutput
+        self.cursorStyle = cursorStyle
     }
 }
 

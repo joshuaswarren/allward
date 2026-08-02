@@ -25,6 +25,7 @@ public final class Terminal {
     private var hyperlinks: [String: UInt32] = [:]
     private var nextHyperlinkID: UInt32 = 1
     private var palette: [UInt8: String] = [:]
+    private var lastPrintedGrapheme: String?
 
     public init(
         geometry: TerminalGeometry,
@@ -48,6 +49,8 @@ public final class Terminal {
     public private(set) var clipboardWrites: [(selection: String, base64: String)] = []
     public private(set) var clipboardReadsRefused = 0
     public private(set) var notifications: [(title: String, body: String)] = []
+    public var fontName: String = "Menlo"
+    public private(set) var pointerShape: String?
 
     public var pendingResponses: [UInt8] {
         let responses = responseBuffer
@@ -315,6 +318,8 @@ public final class Terminal {
         case .cursorForwardTab(let count): moveTabs(forward: true, count: count)
         case .cursorBackwardTab(let count): moveTabs(forward: false, count: count)
         case .setTitle(let value): title = value
+        case let .reportTitle(terminator):
+            responseBuffer += Array(("\u{1B}]21;" + (title ?? "") + terminator.text).utf8)
         case .setWorkingDirectory(let value): commandReducer.setWorkingDirectory(value)
         case .setHyperlink(let parameters, let uri): setHyperlink(parameters: parameters, uri: uri)
         case .commandMarker(let marker): commandReducer.apply(marker, line: currentLineID)
@@ -352,13 +357,24 @@ public final class Terminal {
             else { clipboardReadsRefused += 1 }
         case let .notification(title, body):
             notifications.append((title, body))
+        case let .setPointerShape(shape):
+            pointerShape = shape.isEmpty ? nil : shape
+        case let .setFont(name):
+            if !name.isEmpty { fontName = name }
+        case let .reportFont(terminator):
+            responseBuffer += Array(("\u{1B}]50;" + fontName + terminator.text).utf8)
         case .respond(let bytes): responseBuffer += bytes
         case .reset: reset()
         case .reportCursorPosition(let privateMode):
-            let prefix = privateMode ? "\u{1B}[?" : "\u{1B}["
-            responseBuffer += Array(
-                "\(prefix)\(grid.cursor.row + 1);\(grid.cursor.column + 1)R".utf8
-            )
+            if privateMode {
+                responseBuffer += Array(
+                    "\u{1B}[?\(grid.cursor.row + 1);\(grid.cursor.column + 1);1R".utf8
+                )
+            } else {
+                responseBuffer += Array(
+                    "\u{1B}[\(grid.cursor.row + 1);\(grid.cursor.column + 1)R".utf8
+                )
+            }
         case .alignmentTest:
             let reference = graphemes.intern("E")
             grid.alignmentTest(grapheme: reference, attributes: attributes.intern(grid.currentAttributes))
@@ -370,6 +386,56 @@ public final class Terminal {
             var current = grid.currentAttributes
             if enabled { current.flags.insert(.protected) } else { current.flags.remove(.protected) }
             grid.setCurrentAttributes(current)
+        case let .reportMode(mode, isPrivate):
+            let pm = reportModeStatus(mode: mode, isPrivate: isPrivate)
+            let prefix = isPrivate ? "\u{1B}[?" : "\u{1B}["
+            responseBuffer += Array("\(prefix)\(mode);\(pm)$y".utf8)
+        case .reportTerminalVersion:
+            responseBuffer += Array("\u{1B}P>|Allward(0.1.0)\u{1B}\\".utf8)
+        case let .setCursorStyle(style):
+            modes.cursorStyle = style
+        case .setHorizontalMargins:
+            break
+        case let .repeatCharacter(count):
+            if let last = lastPrintedGrapheme {
+                for _ in 0 ..< min(max(1, count), geometry.columns * geometry.rows) {
+                    applyPrintable(last)
+                }
+            }
+        case .softReset:
+            modes.originMode = false
+            modes.autoWrap = true
+            modes.insertMode = false
+            modes.applicationCursorKeys = false
+            modes.applicationKeypad = false
+            modes.reverseVideo = false
+            modes.bracketedPaste = false
+            modes.mouseTracking = .off
+            modes.mouseEncoding = .x10
+            modes.focusReporting = false
+            modes.synchronizedOutput = false
+            modes.cursorStyle = .blinkingBlock
+            grid.setCursorVisible(true)
+            grid.setMargins(top: 1, bottom: geometry.rows)
+            grid.setCurrentAttributes(.default)
+        case let .reportSetting(setting):
+            switch setting {
+            case "m":
+                responseBuffer += Array("\u{1B}P1$r0m\u{1B}\\".utf8)
+            case "r":
+                let top = grid.scrollTop + 1
+                let bottom = grid.scrollBottom + 1
+                responseBuffer += Array("\u{1B}P1$r\(top);\(bottom)r\u{1B}\\".utf8)
+            case "s":
+                responseBuffer += Array("\u{1B}P1$r1;\(geometry.columns)s\u{1B}\\".utf8)
+            case "\"q", " q":
+                let style = modes.cursorStyle.rawValue
+                responseBuffer += Array("\u{1B}P1$r\(style) \" q\u{1B}\\".utf8)
+            default:
+                responseBuffer += Array("\u{1B}P0$r\(setting)\u{1B}\\".utf8)
+            }
+        case .reportTermcap:
+            responseBuffer += Array("\u{1B}P0+r\u{1B}\\".utf8)
         case .noOp: break
         }
         damage.cursorMoved = damage.cursorMoved || initialRow != grid.cursor.row
@@ -396,6 +462,7 @@ public final class Terminal {
         appendScrollback(scrolled)
         commandReducer.appendCommandInput(String(decoding: bytes, as: UTF8.self))
         markRegion()
+        if let lastByte = bytes.last { lastPrintedGrapheme = String(UnicodeScalar(lastByte)) }
     }
 
     /// Printing one plain character used to cost about 7.7 microseconds.
@@ -423,6 +490,7 @@ public final class Terminal {
     }
 
     private func applyPrintable(_ text: String) {
+        lastPrintedGrapheme = text
         guard let scalar = text.unicodeScalars.first else { return }
         if scalar.value >= 0x20, scalar.value < 0x7F, text.utf8.count == 1 {
             printASCII(UInt8(scalar.value), text: text)
@@ -496,6 +564,7 @@ public final class Terminal {
     private func setMode(_ mode: TerminalMode, enabled: Bool) {
         switch mode {
         case .applicationCursorKeys: modes.applicationCursorKeys = enabled
+        case .reverseVideo: modes.reverseVideo = enabled; damage.fullRedraw = true
         case .origin:
             modes.originMode = enabled
             grid.position(row: 1, column: 1, originMode: enabled)
@@ -530,7 +599,35 @@ public final class Terminal {
         case .focusReporting: modes.focusReporting = enabled
         case .sgrMouse: modes.mouseEncoding = enabled ? .sgr : .x10
         case .synchronizedOutput: modes.synchronizedOutput = enabled
+        case .utf8Mouse, .urxvtMouse, .pixelMouse: break
         case .cursorBlink: break
+        }
+    }
+    private func reportModeStatus(mode: Int, isPrivate: Bool) -> Int {
+        if isPrivate {
+            switch mode {
+            case 1: return modes.applicationCursorKeys ? 1 : 2
+            case 5: return modes.reverseVideo ? 1 : 2
+            case 6: return modes.originMode ? 1 : 2
+            case 7: return modes.autoWrap ? 1 : 2
+            case 12: return 2
+            case 25: return grid.cursor.visible ? 1 : 2
+            case 47, 1047, 1049: return modes.alternateScreen ? 1 : 2
+            case 1000: return modes.mouseTracking == .pressRelease ? 1 : 2
+            case 1002: return modes.mouseTracking == .buttonMotion ? 1 : 2
+            case 1003: return modes.mouseTracking == .anyMotion ? 1 : 2
+            case 1004: return modes.focusReporting ? 1 : 2
+            case 1005, 1015, 1016: return 2
+            case 1006: return modes.mouseEncoding == .sgr ? 1 : 2
+            case 2004: return modes.bracketedPaste ? 1 : 2
+            case 2026: return modes.synchronizedOutput ? 1 : 2
+            default: return 0
+            }
+        } else {
+            switch mode {
+            case 4: return modes.insertMode ? 1 : 2
+            default: return 0
+            }
         }
     }
 
@@ -600,6 +697,7 @@ public final class Terminal {
         modes = TerminalModes()
         selection = nil
         title = nil
+        pointerShape = nil
         bellCount = 0
         scrollOffset = 0
         hyperlinks.removeAll(keepingCapacity: true)

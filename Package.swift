@@ -102,6 +102,7 @@ let package = Package(
 
         // MARK: Tests
 
+        .testTarget(name: "AllwardHerdrTests", dependencies: ["AllwardHerdr"]),
         .testTarget(name: "AllwardCoreTests", dependencies: ["AllwardCore"]),
         .testTarget(name: "AllwardTerminalTests", dependencies: ["AllwardTerminal"]),
         .testTarget(name: "AllwardProtocolTests", dependencies: ["AllwardProtocol"]),

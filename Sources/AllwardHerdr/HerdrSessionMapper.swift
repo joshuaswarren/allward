@@ -37,9 +37,12 @@ public struct HerdrSessionMapper: Sendable {
             let session = makeSession(
                 host: host,
                 workspaceID: pane.workspaceID,
+                workspaceLabel: workspaceLabels[pane.workspaceID],
                 paneID: pane.paneID,
                 terminalID: pane.terminalID,
-                title: pane.title ?? pane.label ?? agent?.agent ?? workspaceLabels[pane.workspaceID],
+                // The agent's own title first: a pane running an agent is
+                // known by the agent, not by whatever the shell last set.
+                title: agent?.title ?? pane.title ?? pane.label ?? agent?.agent,
                 status: agent?.agentStatus ?? pane.agentStatus,
                 workingDirectory: agent?.foregroundCwd ?? agent?.cwd ?? pane.foregroundCwd ?? pane.cwd,
                 observedAt: observedAt
@@ -55,9 +58,10 @@ public struct HerdrSessionMapper: Sendable {
             let session = makeSession(
                 host: host,
                 workspaceID: agent.workspaceID,
+                workspaceLabel: workspaceLabels[agent.workspaceID],
                 paneID: agent.paneID,
                 terminalID: agent.terminalID,
-                title: agent.title ?? agent.agent ?? workspaceLabels[agent.workspaceID],
+                title: agent.title ?? agent.agent,
                 status: agent.agentStatus,
                 workingDirectory: agent.foregroundCwd ?? agent.cwd,
                 observedAt: observedAt
@@ -85,6 +89,7 @@ public struct HerdrSessionMapper: Sendable {
     private func makeSession(
         host: HostAlias,
         workspaceID: String,
+        workspaceLabel: String?,
         paneID: String,
         terminalID: String,
         title: String?,
@@ -94,7 +99,10 @@ public struct HerdrSessionMapper: Sendable {
     ) -> AdapterSession {
         AdapterSession(
             id: "herdr:\(host.rawValue):\(workspaceID):\(paneID)",
-            workspace: workspaceID,
+            // The Board is read by a person, so the space carries the name
+            // herdr shows for it. The identifier stays in `id`, where it is
+            // needed for routing and nowhere else.
+            workspace: workspaceLabel ?? workspaceID,
             paneID: paneID,
             host: host,
             title: title ?? terminalID,
