@@ -35,11 +35,21 @@ the code into a rule.**
 
 ## What to do next
 
-[docs/MAS-PLAN.md](docs/MAS-PLAN.md) is the current plan. No phase has started.
+[docs/MAS-PLAN.md](docs/MAS-PLAN.md) is the current plan. **Phase 1 has landed:**
+the `allward-mas` product exists, and `scripts/mas-isolation-receipts.py` emits
+the four link-negative receipts against `scripts/mas-isolation.json`. All four
+fail on purpose. Run them before you argue about the MAS graph, because they
+report it.
 
-**Phase 1 is unblocked** and is the next piece of work: stand up the sandboxed
-MAS product with its isolation manifest and four link-negative receipts, failing
-loudly, so later phases are measured against it.
+Phase 2 is blocked on **D-A**, so **phase 3 is the next work you can do**: move
+local PTY spawning, the process-table herdr discovery, the process herdr
+executor, and the AF_UNIX control socket host out of shared modules and behind
+injected protocols. Receipts 1 and 2 name every offending edge and line.
+
+Phase 3 cannot finish alone. It clears `AllwardLocalPublisherEndpoint`, the
+listener, and the process launcher, but `AllwardLocalPTY` stays reachable while
+`AllwardSSH` launches `/usr/bin/ssh`, and replacing that is phase 2. Expect
+receipt 1 to keep naming `AllwardLocalPTY` until D-A is ruled on.
 
 Two decisions belong to the owner and are not yours to make. Ask; do not choose.
 
@@ -74,8 +84,13 @@ completion:
 ```sh
 swift test
 bash scripts/no-adapter-clean-build-test.sh   # core must not link AllwardHerdr
+python3 scripts/mas-isolation-receipts.py     # MAS isolation; read it, do not
+                                              # expect it to pass before phase 6
 python3 scripts/validate-publication.py       # public markdown
 ```
+
+The MAS receipts exit non-zero by design. What matters is that they fail on
+fewer things than before your change, and never on something new.
 
 Then exercise the real application. It photographs itself:
 

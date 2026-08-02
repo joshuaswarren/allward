@@ -5,6 +5,13 @@ import PackageDescription
 // docs/SPEC.md §2 "Module and target map". `AllwardHerdr` is an optional
 // adapter: no core target may depend on it, which `AllwardNoHerdrTarget`
 // proves at build time.
+//
+// Two application products share these targets. `allward` is the Developer ID
+// product; `allward-mas` is the sandboxed, remote-only one, which must not reach
+// `AllwardLocalPTY` or `AllwardLocalPublisherEndpoint`. It still does, through
+// `AllwardControl`, `AllwardSSH`, and `AllwardChrome`.
+// scripts/mas-isolation-receipts.py measures that, and docs/MAS-PLAN.md repairs
+// it. Adding a dependency to a shared target adds it to both products.
 
 // The Darwin-only half of the graph (AppKit, Metal, forkpty, SpeechAnalyzer)
 // cannot compile on Linux. Excluding it there is not a portability shim: it is
@@ -56,6 +63,11 @@ import PackageDescription
             ]
         ),
         .executableTarget(name: "allward", dependencies: ["AllwardChrome"]),
+        // The MAS product of decision 5. It declares the dependency it must
+        // eventually carry, so the isolation receipts in
+        // scripts/mas-isolation-receipts.py resolve a real graph and report
+        // every forbidden target still reachable through it.
+        .executableTarget(name: "allward-mas", dependencies: ["AllwardChrome"]),
         .executableTarget(name: "allward-mcp", dependencies: ["AllwardMCP"]),
         .executableTarget(
             name: "allward-qa",
@@ -69,6 +81,7 @@ import PackageDescription
     ]
     let darwinProducts: [Product] = [
         .executable(name: "allward", targets: ["allward"]),
+        .executable(name: "allward-mas", targets: ["allward-mas"]),
         .executable(name: "allward-mcp", targets: ["allward-mcp"]),
     ]
 #else

@@ -12,7 +12,7 @@ Requires macOS 26, Xcode 26, Swift 6.2 or newer.
 git clone https://github.com/joshuaswarren/allward
 cd allward
 swift build
-swift test                          # 111 tests
+swift test                          # 303 tests
 CONFIG=release bash scripts/make-app.sh
 ditto .build/Allward.app /Applications/Allward.app
 ```
@@ -124,6 +124,8 @@ you expected instead. A PNG makes a layout or rendering report far easier
 to act on than a description.
 
 Known gaps, so you do not report them twice. There is no sandboxed Mac
-App Store build. There is no pinned esctest or vttest conformance
+App Store build: the `allward-mas` product exists and deliberately refuses
+to launch, and `scripts/mas-isolation-receipts.py` reports exactly what
+still stands in its way. There is no pinned esctest or vttest conformance
 manifest. Nobody has run the flood and soak benchmarks in
 [SPEC.md](SPEC.md) §21.

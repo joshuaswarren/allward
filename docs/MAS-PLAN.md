@@ -1,6 +1,7 @@
 # Plan: build the sandboxed MAS product
 
-Status: **plan only. No phase has started.** Written 2026-08-02.
+Status: **phase 1 landed. Phase 2 is blocked on decision D-A.** Written
+2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -51,18 +52,39 @@ in the UI.
 
 ## 3. Measured drift
 
-Reproduce each row from a clean checkout. Line numbers move; symbol names do not.
+Phase 1 replaced this hand-reproduced table with a script. Run it and read the
+failures:
+
+```sh
+python3 scripts/mas-isolation-receipts.py
+```
 
 | Requirement | Current state | Evidence |
 | --- | --- | --- |
-| Two products from one revision | One application product, `allward`. The other executable, `allward-mcp`, is its helper CLI | `Package.swift`, `darwinProducts` |
-| `AllwardSSH` ships in MAS | `AllwardSSH` depends on `AllwardLocalPTY`, and opens sessions by launching `/usr/bin/ssh` | `Package.swift` target list; `SSHCommandBuilder` in `Sources/AllwardSSH/SSHTransport.swift` |
-| Shared code assumes no child-process launch | `HerdrProcessExecutor`, `HerdrDiscovery`, `RoomAdapters`, `ControlSocketHost` all launch processes or bind AF_UNIX, inside shared `AllwardChrome` | `grep -rl 'Process()' Sources/AllwardChrome` |
-| MAS isolation manifest and four receipts | absent | no manifest file; `scripts/` has no MAS script |
+| Two products from one revision | both exist: `allward` and `allward-mas` | `Package.swift`, `darwinProducts` |
+| MAS isolation manifest and four receipts | present, and all four fail | `scripts/mas-isolation.json`, `scripts/mas-isolation-receipts.py` |
+| `AllwardSSH` ships in MAS | `AllwardSSH` depends on `AllwardLocalPTY`, and opens sessions by launching `/usr/bin/ssh` | receipt 1; `SSHCommandBuilder` in `Sources/AllwardSSH/SSHTransport.swift` |
+| Shared code assumes no child-process launch | `HerdrProcessExecutor` and `HerdrDiscovery` launch processes and `ControlSocketHost` binds AF_UNIX, all inside shared `AllwardChrome` | receipt 2 |
 | Sandboxed build exists | no | [TESTING.md](TESTING.md) known gaps |
 
-The `AllwardSSH` row is the blocking one. MAS **must** ship direct SSH, and direct
-SSH is currently built on the single module MAS forbids.
+Receipt 1 corrected this plan. It reports a shortest path plus every target that
+declares the forbidden module:
+
+```text
+AllwardLocalPTY                allward-mas -> AllwardChrome -> AllwardControl -> AllwardLocalPTY
+                               declared by: AllwardControl, AllwardSSH
+AllwardLocalPublisherEndpoint  allward-mas -> AllwardChrome -> AllwardLocalPublisherEndpoint
+                               declared by: AllwardChrome
+CAllwardPTY                    ... -> AllwardControl -> AllwardLocalPTY -> CAllwardPTY
+                               declared by: AllwardLocalPTY
+```
+
+So removing the `AllwardSSH` edge in phase 2 does not by itself clear the graph.
+`AllwardControl` names `AllwardLocalPTY` in its own dependency list, and
+`AllwardChrome` names `AllwardLocalPublisherEndpoint` in its. Phase 3 owns both,
+and until then a shortest path alone would not even show the `AllwardSSH` edge.
+Direct SSH remains the blocking capability: MAS **must** ship it, and it is built
+on a module MAS forbids.
 
 One seam is already correct and must be preserved: `HerdrSocketClient` takes an
 injected `HerdrCommandExecutor`, so `AllwardHerdr` itself is sandbox-clean. Only
@@ -103,54 +125,80 @@ Four properties define the target.
   it reads the process table. In MAS a Room's server is **declared**, which is
   what the Settings and Board connect controls already do.
 - A sandboxed product cannot read `~/.ssh/config`, so SSH host aliases defined
-  there do not resolve. MAS hosts come from Allward's own configuration.
-- A sandboxed product cannot reach the ssh-agent socket. MAS authenticates with
-  keys the user has imported. This is OQ-14 territory and gated on decision D-B.
+  there do not resolve, and neither does prior host-key pinning in
+  `~/.ssh/known_hosts`. MAS hosts come from Allward's own configuration.
+  Measured; see [evidence/SANDBOX.md](evidence/SANDBOX.md).
+- A sandboxed product cannot reach the ssh-agent socket, though it does inherit
+  `SSH_AUTH_SOCK`. Measured, so this is settled rather than assumed. MAS
+  authenticates with keys the user has imported, which is D-B's remaining half.
 - One in-process connection carrying many channels replaces the current full SSH
   handshake per herdr command.
 
 ## 5. Decisions required before work starts
 
 Two phases must not begin until the owner rules. Record each accepted decision in
-[DECISIONS.md](DECISIONS.md).
+[DECISIONS.md](DECISIONS.md). Both were blocked on facts nobody had gathered;
+[evidence/SANDBOX.md](evidence/SANDBOX.md) now has them, so what remains is
+genuinely a judgement rather than a gap.
 
-**D-A - adopt an SSH library.** MAS needs direct SSH and cannot launch `ssh`, so
-the protocol must run in-process. This repository has no external package
-dependencies today and no decision records a policy either way, so adopting one
-is a new decision rather than a departure from an existing rule. Writing an SSH
-implementation instead would combine the R-01 risk (*from-scratch engine consumes
-the project*) with a cryptographic attack surface, so the plan assumes a library.
-The candidate is `swift-nio-ssh`: Apple-maintained, Swift concurrency native,
-permissive licence, no C vendoring. It supplies the protocol only; host trust,
-key import, and known-hosts policy remain ours, which §14 already assigns to us.
-Blocks phase 2.
+**D-A - adopt an SSH library.** MAS needs in-process SSH, though not for the
+reason first written here. App Sandbox **permits** launching `/usr/bin/ssh`; the
+child inherits the sandbox and then cannot read `~/.ssh/config`, `known_hosts`,
+or any key, so a spawned client is starved. This repository has no external
+package dependencies today and no decision records a policy either way, so
+adopting one is a new decision. Writing an implementation instead would combine
+the R-01 risk (*from-scratch engine consumes the project*) with a cryptographic
+attack surface, so the plan assumes a library.
 
-**D-B - the MAS credential route.** §14 leaves ssh-agent access, security-scoped
-key-file access, and entitlements probe-gated, and OQ-14 owns the proof. The
-proposal is: keys imported through the open panel and held in Keychain, host
-trust on first use with fingerprint display, and no agent. Both products MUST
-keep identical trust and cancellation semantics. Blocks phase 5.
+`swift-nio-ssh` is the candidate and it is weaker than this plan assumed. It is
+0.15.0 and pre-1.0; its README says it "does not ship production-ready SSH
+clients and servers, but instead provides the building blocks"; it has had one
+commit in twelve months; and it cannot represent an `ssh-rsa` **host** key at
+all. Against a stock macOS `sshd` that costs nothing, because the server also
+offers Ed25519 and the client negotiates. It costs a connection only where a
+server offers no Ed25519 or ECDSA host key. It does support Secure Enclave P-256
+private keys, which bears on D-B. The alternative worth ranking against it is
+libssh2: licence-clean and algorithm-complete, but C, with no maintained Swift
+binding, so we would own the bridge. libssh is LGPL-2.1 and needs legal review
+before it is even a candidate. Blocks phase 2.
+
+**D-B - the MAS credential route.** Mostly settled by measurement. ssh-agent is
+**unreachable** under App Sandbox, so "no agent" is a fact, not a choice.
+`~/.ssh/config` and `~/.ssh/known_hosts` are unreadable, so hosts come from
+Allward's own configuration and prior pinning is invisible. What is still open is
+one thing: Keychain returned `errSecInteractionNotAllowed` under an ad-hoc
+signature, so key-import-to-Keychain is unproven until it is tried with a real
+signing identity. Secure Enclave keys are the alternative worth weighing, since a
+key that cannot be exported beats a key that can. Both products MUST keep
+identical trust and cancellation semantics. Blocks phase 5.
 
 ## 6. Phases
 
 Each phase lands independently and leaves the tree green.
 
-### Phase 1 - stand up the MAS product, failing
+### Phase 1 - stand up the MAS product, failing (landed)
 
-Create the second application product and the isolation manifest that defines it,
-plus the four receipts §2 requires: resolved dependency-graph exclusion, negative
-compile fixtures for local PTY, local publisher, and process launch, archive
-linker-map and linked-library closure, and final artifact inspection.
+`allward-mas` is the second application product, `scripts/mas-isolation.json` is
+the closed manifest that defines it, and `scripts/mas-isolation-receipts.py`
+emits the four receipts §2 requires: resolved dependency-graph exclusion,
+negative compile fixtures, archive linker-map and linked-library closure, and
+final artifact inspection.
 
-`scripts/no-adapter-clean-build-test.sh` is the working precedent for a
-manifest-driven exclusion receipt; the MAS receipts consume their own manifest
-the same way.
+`scripts/no-adapter-clean-build-test.sh` was the precedent for a manifest-driven
+exclusion receipt; the MAS receipts consume their own manifest the same way.
 
-The product does not build at first, and that is the point: from here every
-change is measured against it.
+This plan predicted the product would not build. It does. A SwiftPM dependency is
+declared per target, not per product, so a MAS product cannot subtract
+`AllwardLocalPTY` from `AllwardChrome`'s own dependency list; expressing that is
+what phase 3 is for. The compiler was never going to be the signal. The receipts
+are, and all four fail. `Sources/allward-mas/main.swift` refuses to launch for
+the same reason, so no binary labelled MAS can offer a local shell in the
+meantime.
 
-- **Accepts when:** a script emits all four receipts, and they fail loudly and
-  specifically, naming `AllwardLocalPTY` reached through `AllwardSSH`.
+- **Accepted when:** a script emits all four receipts, and they fail loudly and
+  specifically, naming `AllwardLocalPTY` reached through `AllwardSSH`. Receipt 1
+  reports `declared by: AllwardControl, AllwardSSH`; receipts 3 and 4 name the
+  absent archive. Verified on macOS 26.5.2.
 - **Guards against:** shared code drifting further toward the Dev ID product
   while nothing checks.
 
@@ -222,11 +270,20 @@ Every phase runs on a macOS 26 machine:
 swift build
 swift test
 bash scripts/no-adapter-clean-build-test.sh
+python3 scripts/mas-isolation-receipts.py
 python3 scripts/validate-publication.py
 ```
 
-Phases 1 and onward add the MAS receipt script to that list. A phase is complete
-when its receipts pass, not when the code compiles.
+The MAS receipts exit non-zero until phase 6, by design, so they are read rather
+than merely run. Phases 3 and onward are measured by which of them stop failing.
+Receipts 3 and 4 need a real archive:
+
+```sh
+python3 scripts/mas-isolation-receipts.py \
+    --archive .build/Allward-MAS.app --linker-map .build/mas-maps
+```
+
+A phase is complete when its receipts say so, not when the code compiles.
 
 ## 8. Non-goals
 

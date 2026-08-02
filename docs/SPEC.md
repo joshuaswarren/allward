@@ -231,11 +231,13 @@ also cover install-enable-disable-remove-reenable and prove local/direct-SSH
 sessions, Room definitions, TOML settings, and normalized surface records
 survive adapter removal/re-addition without migration loss.
 
-The MAS isolation manifest freezes forbidden modules, capabilities, APIs,
-symbols, and every Mach-O, framework, library, extension, helper, and executable
-inspected. It excludes `AllwardLocalPTY`, `AllwardLocalPublisherEndpoint`, local
-process launch, and their target-only dependencies. Four coupled receipts
-consume that same manifest on every tagged archive:
+The MAS isolation manifest is `scripts/mas-isolation.json`. It freezes forbidden
+modules, capabilities, APIs, symbols, and every Mach-O, framework, library,
+extension, helper, and executable inspected. It excludes `AllwardLocalPTY`,
+`AllwardLocalPublisherEndpoint`, local process launch, and their target-only
+dependencies. Four coupled receipts, emitted by
+`scripts/mas-isolation-receipts.py`, consume that same manifest on every tagged
+archive:
 
 1. resolved package/target dependency graph exclusion;
 2. negative MAS compile fixtures for local PTY, local publisher listener, and
@@ -245,7 +247,9 @@ consume that same manifest on every tagged archive:
    complete artifact set.
 
 The compile fixture proves source visibility; graph/link/archive receipts prove
-artifact exclusion. A symbol/string scan alone cannot pass.
+artifact exclusion. A symbol/string scan alone cannot pass. A fixture that fails
+to compile MUST report a forbidden name as unresolved; failing for any other
+reason proves nothing and MUST NOT pass.
 
 ### Core window and session topology
 

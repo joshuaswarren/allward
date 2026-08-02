@@ -7,5 +7,5 @@ DEST="${ALLWARD_BUILD_DIR:-src/allward-build}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ssh -o ConnectTimeout=8 -o BatchMode=yes "$HOST" "mkdir -p '$DEST'"
 rsync -a --delete \
-  --exclude '.git/' --exclude '.build/' --exclude 'artifacts/' --exclude '*.app/' \
+  --exclude '.git/' --exclude '.build*/' --exclude 'artifacts/' --exclude '*.app/' \
   "$SRC"/ "$HOST:$DEST"/
