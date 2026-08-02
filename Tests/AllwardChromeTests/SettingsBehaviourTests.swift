@@ -119,10 +119,14 @@ final class SettingsBehaviourTests: XCTestCase {
         XCTAssertEqual(rooms.count, 1)
     }
 
-    /// Dictation audio retention was offered as an opt-in behind a button that
-    /// did nothing. There is no reason to offer it at all.
+    /// Settings holds settings. Statements of fact belong in the README.
+    ///
+    /// Privacy listed three rows that were not settings: "Intelligence", which
+    /// names no feature; "Crash reports", promising review before sharing a
+    /// report never collected; and a note that dictation audio is discarded.
+    /// Nothing there could be decided, so nothing there belonged.
     @MainActor
-    func testDictationAudioRetentionIsNotOffered() {
+    func testPrivacyOffersOnlyThingsAPersonCanDecide() throws {
         let state = SurfaceProjection.settings(
             configuration(),
             rooms: [.personal],
@@ -131,32 +135,26 @@ final class SettingsBehaviourTests: XCTestCase {
             mcpCommandLine: "allward-mcp",
             shellLane: "OSC 133"
         )
-        let speech = state.privacy.first { $0.id == "speech-retention" }
+        XCTAssertFalse(state.privacy.isEmpty, "Privacy must not be an empty tab.")
+        for item in state.privacy {
+            XCTAssertTrue(
+                item.isEnabled,
+                "'\(item.id)' cannot be changed, so it is a fact and belongs in the README.")
+            guard case .toggle = item.value else {
+                return XCTFail("'\(item.id)' is not a control.")
+            }
+        }
         XCTAssertEqual(
-            speech?.value, .disabled,
-            "Dictation audio is discarded. Retention must not be a setting.")
+            Set(state.privacy.map(\.id)),
+            ["privacy.clipboard-read", "privacy.log-file"])
     }
 
-    /// A switch the handler will refuse is worse than no switch. herdr appears
-    /// when a herdr server runs; it is a readout, and it renders as one.
+    /// Both reach outside the terminal, so both start off.
     @MainActor
-    func testOnlySwitchableIntegrationsRenderASwitch() {
-        var configuration = self.configuration()
-        let state = SurfaceProjection.settings(
-            configuration,
-            rooms: [.personal],
-            themes: ThemeCatalog.builtIns.map(\.name),
-            adapterHealth: .none,
-            mcpCommandLine: "allward-mcp",
-            shellLane: "OSC 133"
-        )
-        XCTAssertFalse(state.integrations.isEmpty)
-        for integration in state.integrations where integration.isSwitchable {
-            XCTAssertTrue(
-                AppModel.applyIntegration(
-                    integration.id, enabled: !integration.isEnabled, to: &configuration),
-                "'\(integration.id)' renders a switch but the handler refuses it.")
-        }
+    func testTheProgramReachSettingsStartOff() {
+        let configuration = self.configuration()
+        XCTAssertFalse(configuration.terminal.allowClipboardRead)
+        XCTAssertFalse(configuration.terminal.allowLogFile)
     }
 
     private static func plausibleValue(
@@ -170,6 +168,8 @@ final class SettingsBehaviourTests: XCTestCase {
         case "terminal.cursor-blink": .toggle(true)
         case "terminal.scrollback-capacity":
             .number(value: 5000, range: 1...10_000_000, step: 1000)
+        case "privacy.clipboard-read", "privacy.log-file":
+            .toggle(true)
         case "attention.bar":
             .choice(selectedID: AttentionBarVisibility.always.rawValue, choices: [])
         case "board.presentation":

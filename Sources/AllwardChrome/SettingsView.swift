@@ -31,7 +31,6 @@ public struct SettingsView: View {
     @State private var selectedThemeID: String?
     @State private var keyShortcuts: [String: String]
     @State private var integrations: [String: Bool]
-    @State private var privacyValues: [String: PrivacySettingValue]
 
     private let state: SettingsViewState
     private let onUpdate: @MainActor (SettingsUpdate) -> Void
@@ -61,7 +60,6 @@ public struct SettingsView: View {
         _integrations = State(initialValue: Dictionary(
             uniqueKeysWithValues: state.integrations.map { ($0.id, $0.isEnabled) }
         ))
-        _privacyValues = State(initialValue: Dictionary(uniqueKeysWithValues: state.privacy.map { ($0.id, $0.value) }))
     }
 
     public var body: some View {
@@ -480,48 +478,11 @@ public struct SettingsView: View {
     private var privacySettings: some View {
         VStack(alignment: .leading, spacing: SpaceToken.section.points) {
             SectionHeader("Privacy")
-            let telemetryMark = StateMark.mark(for: PresentationState.finished)
-            Label("Zero telemetry", systemImage: telemetryMark.symbolName)
-                .tokenFont(.uiHeading, palette)
-                .tokenForeground(telemetryMark.color, palette)
-            Text("Allward sends no product analytics or usage telemetry.")
-                .tokenFont(.uiBody, palette)
-                .tokenForeground(.textSecondary, palette)
-            ForEach(state.privacy) { item in privacyControl(item) }
+            ForEach(state.privacy) { item in generalControl(item) }
         }
     }
 
-    @ViewBuilder
-    private func privacyControl(_ item: PrivacySetting) -> some View {
-        let value = privacyValues[item.id] ?? item.value
-        VStack(alignment: .leading, spacing: SpaceToken.inlineTight.points) {
-            Text(item.label)
-                .tokenFont(.uiHeading, palette)
-                .tokenForeground(.textPrimary, palette)
-            Text(item.detail)
-                .tokenFont(.uiBody, palette)
-                .tokenForeground(.textSecondary, palette)
-            switch value {
-            case .onDevice:
-                privacyStatus("On device", state: .live)
-            case .disabled:
-                privacyStatus("Off", state: .empty)
-            case .permissionRequired:
-                privacyStatus("Permission required", state: .needsInput)
-            }
-        }
-        .padding(.vertical, SpaceToken.blockCompact.points)
-        .overlay(alignment: .bottom) {
-            Divider().overlay(palette[.strokeDivider].swiftUIColor)
-        }
-    }
 
-    private func privacyStatus(_ text: String, state: PresentationState) -> some View {
-        let mark = StateMark.mark(for: state)
-        return Label(text, systemImage: mark.symbolName)
-            .tokenFont(.uiLabel, palette)
-            .tokenForeground(mark.color, palette)
-    }
 
     private func settingLabel(_ label: String, detail: String?) -> some View {
         VStack(alignment: .leading, spacing: SpaceToken.inlineTight.points) {

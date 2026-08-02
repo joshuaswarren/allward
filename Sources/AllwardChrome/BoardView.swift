@@ -92,13 +92,17 @@ public struct BoardView: View {
         case .noSessions:
             VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
                 SectionHeader(state.subject.target)
+                // "Choose configured adapter" opened Settings, where there is
+                // nothing to configure - herdr is found by running it, not by
+                // being declared. A button that lands you somewhere with no
+                // answer is worse than no button.
                 EmptyStateView(
                     title: "No sessions yet",
-                    reason: "Choose how to start: local terminal, direct SSH, or a configured adapter.")
+                    reason: "Start a terminal here, connect over SSH, or run herdr in a "
+                        + "pane and its sessions appear on this Board.")
                 HStack(spacing: SpaceToken.inlineStandard.points) {
                     Button("Create local terminal") { onBoardAction("create-local-terminal") }
                     Button("Connect SSH") { onBoardAction("connect-ssh") }
-                    Button("Choose configured adapter") { onBoardAction("choose-adapter") }
                 }
             }
         case .noOpenLoops:

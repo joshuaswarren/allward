@@ -89,8 +89,27 @@ It exposes pane control, screen and history reads, board and router queries, Roo
 3. The main thread never parses terminal bytes.
 4. The app never scrapes pixels for meaning.
 5. Models run on the device by default.
-6. Allward collects no usage data. Crash reports require opt-in and remove terminal text.
+6. Allward collects no usage data and has no crash reporter.
 7. Specs define the contract. Tests and receipts prove it.
+
+## Privacy
+
+These are facts about how Allward works, not things to configure:
+
+- No telemetry, no analytics, no crash reporter. Nothing is sent anywhere.
+- Dictation is transcribed on the device. The audio is discarded immediately
+  and is never written to disk.
+- A program running in a pane can *set* the clipboard, and cannot read it.
+- A program cannot ask the terminal to write a file.
+
+The last two are the only ones that can be changed, because xterm defines
+sequences for both and some tools expect them. They are off, and they live in
+Settings under Privacy:
+
+- **Let programs read the clipboard** (`OSC 52` read). On, any program can read
+  whatever you last copied, without asking.
+- **Let programs write a log file** (`OSC 46`). On, a program chooses the path
+  as well as the contents.
 
 ## Develop
 

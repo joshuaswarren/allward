@@ -179,7 +179,7 @@ public enum SurfaceProjection {
                 adapterHealth: adapterHealth,
                 mcpCommandLine: mcpCommandLine
             ),
-            privacy: privacySettings
+            privacy: privacySettings(configuration)
         )
     }
 
@@ -839,26 +839,30 @@ public enum SurfaceProjection {
         }
     }
 
-    private static let privacySettings = [
-        PrivacySetting(
-            id: "intelligence",
-            label: "Intelligence",
-            value: .onDevice,
-            detail: "Deterministic facts remain available without rewriting."
-        ),
-        PrivacySetting(
-            id: "crash-reports",
-            label: "Crash reports",
-            value: .permissionRequired,
-            detail: "Review each report before sharing."
-        ),
-        PrivacySetting(
-            id: "speech-retention",
-            label: "Speech retention",
-            value: .disabled,
-            detail: "Transcribed on device. Audio is never stored."
-        ),
-    ]
+    /// The Privacy section holds settings, and only settings.
+    ///
+    /// It used to list three statements: "Intelligence", which corresponds to
+    /// no feature; "Crash reports", which promised review before sharing a
+    /// report this application has never collected; and a note that dictation
+    /// audio is discarded. The first two described nothing, and the third is a
+    /// fact about how Allward works, which belongs in the README where facts
+    /// live. What belongs here is the two things a person can actually decide,
+    /// both of which let a program reach outside the terminal.
+    private static func privacySettings(_ configuration: Configuration) -> [GeneralSetting] {
+        [
+            GeneralSetting(
+                id: "privacy.clipboard-read", label: "Let programs read the clipboard",
+                detail: "Off, a program can set the clipboard but never read it. On, any "
+                    + "program can read whatever you last copied, without asking.",
+                value: .toggle(configuration.terminal.allowClipboardRead), isEnabled: true),
+            GeneralSetting(
+                id: "privacy.log-file", label: "Let programs write a log file",
+                detail: "Off, a program cannot ask the terminal to write to disk. On, it "
+                    + "chooses the path as well as the contents.",
+                value: .toggle(configuration.terminal.allowLogFile), isEnabled: true),
+        ]
+    }
+
 
     private static func commandGroups(
         rooms: [Room],

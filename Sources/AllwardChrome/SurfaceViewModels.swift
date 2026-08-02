@@ -778,15 +778,6 @@ public enum PrivacySettingValue: Hashable, Sendable {
     case permissionRequired
 }
 
-public struct PrivacySetting: Identifiable, Hashable, Sendable {
-    public var id: String
-    public var label: String
-    public var value: PrivacySettingValue
-    public var detail: String
-    public init(id: String, label: String, value: PrivacySettingValue, detail: String) {
-        self.id = id; self.label = label; self.value = value; self.detail = detail
-    }
-}
 
 public struct SettingsViewState: Hashable, Sendable {
     public var presentation: ComposedPresentation
@@ -799,13 +790,13 @@ public struct SettingsViewState: Hashable, Sendable {
     public var themes: [ThemeSetting]
     public var keys: [KeySetting]
     public var integrations: [IntegrationSetting]
-    public var privacy: [PrivacySetting]
+    public var privacy: [GeneralSetting]
     public init(
         presentation: ComposedPresentation, subject: PresentationSubject, selectedTab: SettingsTab,
         general: [GeneralSetting], appearance: [GeneralSetting] = [], sound: [GeneralSetting] = [],
         rooms: [RoomSetting], themes: [ThemeSetting],
         keys: [KeySetting],
-        integrations: [IntegrationSetting], privacy: [PrivacySetting]
+        integrations: [IntegrationSetting], privacy: [GeneralSetting]
     ) {
         self.presentation = presentation; self.subject = subject; self.selectedTab = selectedTab
         self.general = general; self.appearance = appearance; self.sound = sound
@@ -893,20 +884,7 @@ public struct SettingsViewState: Hashable, Sendable {
                     subject: PresentationSubject(componentName: "Integration", target: "Allward MCP"),
                     isEnabled: true),
             ],
-            privacy: [
-                PrivacySetting(
-                    id: "intelligence", label: "Intelligence", value: .onDevice,
-                    detail: "Deterministic facts stay visible when rewriting is unavailable."),
-                PrivacySetting(
-                    id: "history", label: "Digest history", value: .onDevice,
-                    detail: "Acknowledged digests remain in bounded local history."),
-                PrivacySetting(
-                    id: "crash-reports", label: "Crash reports", value: .permissionRequired,
-                    detail: "Ask before sharing a crash report."),
-                PrivacySetting(
-                    id: "speech-retention", label: "Speech retention", value: .disabled,
-                    detail: "Dictation audio is discarded immediately."),
-            ])
+            privacy: [])
     }
 
     private static let fixtureKeys = [

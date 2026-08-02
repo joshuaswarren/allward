@@ -221,8 +221,6 @@ extension MainWindowController {
             presentHostPicker()
         case "open-diagnostics", "inspect-connection", "inspect-source":
             presentDiagnostics()
-        case "choose-adapter":
-            presentSettings()
         default:
             model.lastActionMessage = "Board action \(action) is not available."
         }
