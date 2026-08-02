@@ -8,8 +8,7 @@ import XCTest
 ///
 /// Ensures full 10-19 dynamic colour coverage, consecutive-slot color parameters,
 /// 110-119 resets, pointer shape setting, font set/query, title query via OSC 21,
-/// clipboard read refusal / write recording, and safe explicit ignoring of
-/// obsolete or hazardous sequences (such as OSC 46 logfile manipulation).
+/// clipboard read refusal / write recording, and metadata command handling.
 final class OSCCompletionTests: XCTestCase {
     private func terminal(columns: Int = 80, rows: Int = 24) -> Terminal {
         Terminal(
@@ -147,10 +146,10 @@ final class OSCCompletionTests: XCTestCase {
         XCTAssertEqual(terminal.snapshot().plainText(row: 0).trimmingCharacters(in: .whitespaces), "Hello World")
     }
 
-    // MARK: - 5. OSC 3 & Special Colors (5, 105, 106) Ignored Safely
+    // MARK: - 5. OSC 3 & Special Colors (5, 105, 106)
 
-    /// OSC 3 (X property) and OSC 5/105/106 (special colors) are safely ignored.
-    func testOSC3AndSpecialColorsAreSafelyIgnored() {
+    /// OSC 3 and special colors update state without producing printable output.
+    func testOSC3AndSpecialColorsAreRecordedSafely() {
         let terminal = self.terminal()
 
         send("\u{1B}]3;prop=value\u{07}", to: terminal)
@@ -273,10 +272,10 @@ final class OSCCompletionTests: XCTestCase {
         XCTAssertTrue(stResp.hasSuffix("\u{1B}\\"))
     }
 
-    // MARK: - 11. Explicit Ignore Audit
+    // MARK: - 11. Defined OSC sequences remain side-effect free for the grid
 
-    /// Verifies obsolete/unsupported OSC numbers (30, 31, 51, 60, 1337, 9999) do not corrupt terminal.
-    func testObsoleteAndUnsupportedOSCSequencesDoNotCorruptTerminal() {
+    /// Defined metadata OSC commands update terminal state without corrupting printable text.
+    func testDefinedMetadataOSCSequencesDoNotCorruptTerminal() {
         let terminal = self.terminal()
 
         send("\u{1B}]30;fontname\u{07}", to: terminal)
@@ -286,7 +285,10 @@ final class OSCCompletionTests: XCTestCase {
         send("\u{1B}]1337;File=inline=1:SGVsbG8=\u{07}", to: terminal)
         send("\u{1B}]9999;unknown_payload\u{1B}\\", to: terminal)
 
-        XCTAssertTrue(terminal.pendingResponses.isEmpty)
+        XCTAssertEqual(
+            String(decoding: terminal.pendingResponses, as: UTF8.self),
+            "\u{1B}]60;\u{1B}\\"
+        )
 
         send("Functional Text", to: terminal)
         XCTAssertEqual(terminal.snapshot().plainText(row: 0).trimmingCharacters(in: .whitespaces), "Functional Text")

@@ -19,14 +19,21 @@ public actor Session {
         channel: any RemoteChannel,
         geometry: TerminalGeometry,
         clock: any AllwardClock,
-        scrollbackCapacity: Int = 10_000
+        scrollbackCapacity: Int = 10_000,
+        allowLogFile: Bool = false,
+        allowClipboardRead: Bool = false
     ) {
         self.id = id
         self.channel = channel
+        // Both are off unless the configuration turns them on: OSC 46 writes a
+        // path the program chooses, and an OSC 52 read hands back whatever the
+        // user last copied.
         terminal = Terminal(
             geometry: geometry,
             clock: clock,
-            scrollbackCapacity: scrollbackCapacity
+            scrollbackCapacity: scrollbackCapacity,
+            allowLogFile: allowLogFile,
+            allowClipboardRead: allowClipboardRead
         )
         let pair = AsyncStream.makeStream(
             of: TerminalSnapshot.self,

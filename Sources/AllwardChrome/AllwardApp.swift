@@ -209,6 +209,7 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
             print("grids: \(model.gridReport())")
             print("rows:\n\(model.rowDump())")
             print("colors:\n\(model.colorDump(matching: "\u{2713}\u{2717}\u{2714}"))")
+            print("gutter:\n\(model.gutterDump())")
             print("focusedPane: \(model.focusedPane?.shortLabel ?? "none") focusedTab: \(model.focusedTab?.shortLabel ?? "none") focusedWindow: \(model.focusedWindow?.shortLabel ?? "none")")
             if let message = model.lastActionMessage { print("note: \(message)") }
             exit(0)

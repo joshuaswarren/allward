@@ -113,6 +113,7 @@ public enum TerminalOperation: Hashable, Sendable {
     case setWorkingDirectory(String)
     case setHyperlink(parameters: String, uri: String?)
     case commandMarker(OSCCommandMarker)
+    case setXProperty(key: String, value: String)
     case setPalette(index: UInt8, value: String)
     case resetPalette(index: UInt8?)
     case setDynamicColor(slot: Int, value: String)
@@ -122,7 +123,23 @@ public enum TerminalOperation: Hashable, Sendable {
     /// to assume light and paint dark text nobody can read on a dark grid.
     case reportDynamicColor(slot: Int, terminator: StringTerminator)
     case reportPaletteColor(index: UInt8, terminator: StringTerminator)
-    case clipboard(selection: String, base64: String?)
+    case setSpecialColor(index: UInt8, value: String)
+    case reportSpecialColor(index: UInt8, terminator: StringTerminator)
+    case resetSpecialColor(index: UInt8?)
+    case setColorMode(index: UInt8, enabled: Bool)
+    case setTabTitle(String)
+    case setTabIcon(String)
+    case setEmacsPromptMarker(String)
+    /// OSC 52 reads whatever the user last copied and can leak sensitive data.
+    case clipboard(selection: String, base64: String?, terminator: StringTerminator)
+    /// OSC 46 permits arbitrary file writes when explicitly enabled.
+    case setLogFile(String)
+    case reportFeatureCapabilities(terminator: StringTerminator)
+    case setITermUserVariable(key: String, value: String)
+    case setITermCurrentDirectory(String)
+    case setITermShellIntegrationVersion(String)
+    case setITermRemoteHost(String)
+    case consumeITermFile
     case notification(title: String, body: String)
     case setPointerShape(String)
     case setFont(String)

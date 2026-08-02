@@ -52,6 +52,7 @@ public struct LocalPTYTransport: RemoteTransport {
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["ALLWARD"] = "1"
+        Self.ensureUTF8Locale(in: &environment)
 
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 }
             ?? "/bin/zsh"
@@ -64,6 +65,39 @@ public struct LocalPTYTransport: RemoteTransport {
             destination: destination
         )
         return try openProcess(configuration, geometry: geometry)
+    }
+
+    /// Gives the shell a UTF-8 locale when it would otherwise inherit none.
+    ///
+    /// A GUI application does not inherit a login shell's environment, so the
+    /// pty came up with `LANG=C` - the POSIX locale, which promises ASCII and
+    /// nothing else. Well-behaved programs believe it: herdr dropped to its
+    /// ASCII output and wrote spaces where a tick belongs, so agents that had
+    /// finished showed nothing at all. It looked like a font problem and was
+    /// not; the same herdr against the same server is fine in Terminal.app,
+    /// which sets this for the same reason.
+    ///
+    /// An explicit UTF-8 setting from the user is left alone.
+    static func ensureUTF8Locale(in environment: inout [String: String]) {
+        let existing = environment["LC_ALL"] ?? environment["LC_CTYPE"] ?? environment["LANG"]
+        if let existing, existing.lowercased().contains("utf-8")
+            || existing.lowercased().contains("utf8")
+        {
+            return
+        }
+        environment["LANG"] = preferredUTF8Locale()
+        environment.removeValue(forKey: "LC_ALL")
+        environment.removeValue(forKey: "LC_CTYPE")
+    }
+
+    /// The user's own region in UTF-8 where the system has it, so dates and
+    /// sorting stay theirs rather than becoming American.
+    static func preferredUTF8Locale() -> String {
+        let identifier = Locale.current.identifier.replacingOccurrences(of: "-", with: "_")
+        let base = identifier.split(separator: "@").first.map(String.init) ?? identifier
+        let trimmed = base.split(separator: ".").first.map(String.init) ?? base
+        guard trimmed.contains("_"), trimmed.count <= 12 else { return "en_US.UTF-8" }
+        return trimmed + ".UTF-8"
     }
 
     public func openProcess(

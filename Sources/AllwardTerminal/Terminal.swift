@@ -1,9 +1,14 @@
 import AllwardCore
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 public final class Terminal {
     private var geometry: TerminalGeometry
     private let clock: any AllwardClock
+    private let allowLogFile: Bool
+    private let allowClipboardRead: Bool
     private var recognizer = EscapeRecognizer()
     private var grid: Grid
     private var scrollback: Scrollback
@@ -30,10 +35,14 @@ public final class Terminal {
     public init(
         geometry: TerminalGeometry,
         clock: any AllwardClock,
-        scrollbackCapacity: Int = 10_000
+        scrollbackCapacity: Int = 10_000,
+        allowLogFile: Bool = false,
+        allowClipboardRead: Bool = false
     ) {
         self.geometry = geometry
         self.clock = clock
+        self.allowLogFile = allowLogFile
+        self.allowClipboardRead = allowClipboardRead
         grid = Grid(geometry: geometry)
         scrollback = Scrollback(capacity: scrollbackCapacity)
         commandReducer = CommandRegionReducer(clock: clock)
@@ -45,6 +54,20 @@ public final class Terminal {
     /// screen, not a guess.
     public var dynamicColors = DynamicColors()
     private var paletteOverrides: [UInt8: DynamicColors.RGB] = [:]
+    public private(set) var xProperties: [String: String] = [:]
+    public private(set) var specialColors: [UInt8: String] = [:]
+    public private(set) var colorModes: [UInt8: Bool] = [:]
+    public private(set) var tabTitle: String?
+    public private(set) var tabIcon: String?
+    public private(set) var emacsPromptMarker: String?
+    public private(set) var itermUserVariables: [String: String] = [:]
+    public private(set) var itermCurrentDirectory: String?
+    public private(set) var itermShellIntegrationVersion: String?
+    public private(set) var itermRemoteHost: String?
+    public private(set) var itermFilesConsumed = 0
+    public private(set) var logFilePath: String?
+    /// The most recent clipboard text supplied by the host integration.
+    public var clipboardText: String?
     /// Recorded for the application to act on, and for tests to assert.
     public private(set) var clipboardWrites: [(selection: String, base64: String)] = []
     public private(set) var clipboardReadsRefused = 0
@@ -323,6 +346,7 @@ public final class Terminal {
         case .setWorkingDirectory(let value): commandReducer.setWorkingDirectory(value)
         case .setHyperlink(let parameters, let uri): setHyperlink(parameters: parameters, uri: uri)
         case .commandMarker(let marker): commandReducer.apply(marker, line: currentLineID)
+        case let .setXProperty(key, value): xProperties[key] = value
         case .setPalette(let index, let value):
             palette[index] = value
             if let color = DynamicColors.RGB.parse(value) { paletteOverrides[index] = color }
@@ -344,17 +368,58 @@ public final class Terminal {
             let color = paletteOverrides[index] ?? DynamicColors.RGB(0, 0, 0)
             responseBuffer += Array(
                 ("\u{1B}]4;\(index);" + color.xtermDescription + terminator.text).utf8)
+        case let .setSpecialColor(index, value):
+            specialColors[index] = value
+        case let .reportSpecialColor(index, terminator):
+            let value = specialColors[index] ?? DynamicColors.RGB(0, 0, 0).xtermDescription
+            responseBuffer += Array(
+                ("\u{1B}]5;\(index);" + value + terminator.text).utf8)
+        case let .resetSpecialColor(index):
+            if let index { specialColors.removeValue(forKey: index) }
+            else { specialColors.removeAll() }
+        case let .setColorMode(index, enabled):
+            colorModes[index] = enabled
         case let .resetPalette(index):
             if let index { paletteOverrides.removeValue(forKey: index) }
             else { paletteOverrides.removeAll() }
             damage.fullRedraw = true
-        case let .clipboard(selection, base64):
-            // Writing is ordinary. Reading is not: a program that can read the
-            // clipboard unprompted can read whatever the user last copied, so
-            // the request is recorded and refused, as every serious terminal
-            // refuses it by default.
-            if let base64 { clipboardWrites.append((selection, base64)) }
-            else { clipboardReadsRefused += 1 }
+        case .setTabTitle(let value):
+            tabTitle = value
+            title = value
+        case .setTabIcon(let value): tabIcon = value
+        case .setEmacsPromptMarker(let value): emacsPromptMarker = value
+        case let .clipboard(selection, base64, terminator):
+            if let base64 {
+                clipboardWrites.append((selection, base64))
+            } else if allowClipboardRead {
+                let value = readClipboardText()
+                let encoded = Data(value.utf8).base64EncodedString()
+                responseBuffer += Array(
+                    "\u{1B}]52;\(selection);\(encoded)\(terminator.text)".utf8)
+            } else {
+                clipboardReadsRefused += 1
+            }
+        case .setLogFile(let path):
+            guard allowLogFile else { break }
+            if path == "?" || path.isEmpty {
+                logFilePath = nil
+            } else {
+                logFilePath = path
+                FileManager.default.createFile(atPath: path, contents: nil)
+            }
+        case let .reportFeatureCapabilities(terminator):
+            responseBuffer += Array(("\u{1B}]60;" + terminator.text).utf8)
+        case let .setITermUserVariable(key, value):
+            if let data = Data(base64Encoded: value), let decoded = String(data: data, encoding: .utf8) {
+                itermUserVariables[key] = decoded
+            } else {
+                itermUserVariables[key] = value
+            }
+        case .setITermCurrentDirectory(let value): itermCurrentDirectory = value
+        case .setITermShellIntegrationVersion(let value):
+            itermShellIntegrationVersion = value
+        case .setITermRemoteHost(let value): itermRemoteHost = value
+        case .consumeITermFile: itermFilesConsumed += 1
         case let .notification(title, body):
             notifications.append((title, body))
         case let .setPointerShape(shape):
@@ -449,6 +514,7 @@ public final class Terminal {
     /// removes a String allocation, an enum box and a closure call per byte.
     private func printPlainRun(_ bytes: ArraySlice<UInt8>) {
         Perf.opCalls += bytes.count
+        appendLog(Data(bytes))
         var references = [UInt32]()
         references.reserveCapacity(bytes.count)
         for byte in bytes { references.append(graphemes.internASCII(byte)) }
@@ -488,9 +554,9 @@ public final class Terminal {
         appendScrollback(scrolled)
         commandReducer.appendCommandInput(text)
     }
-
     private func applyPrintable(_ text: String) {
         lastPrintedGrapheme = text
+        appendLog(Data(text.utf8))
         guard let scalar = text.unicodeScalars.first else { return }
         if scalar.value >= 0x20, scalar.value < 0x7F, text.utf8.count == 1 {
             printASCII(UInt8(scalar.value), text: text)
@@ -523,9 +589,32 @@ public final class Terminal {
             insertMode: modes.insertMode
         )
         appendScrollback(scrolled)
-        commandReducer.appendCommandInput(text)
     }
 
+    private func appendLog(_ data: Data) {
+        guard allowLogFile, let path = logFilePath, !data.isEmpty else { return }
+        guard let handle = FileHandle(forWritingAtPath: path) else {
+            FileManager.default.createFile(atPath: path, contents: data)
+            return
+        }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            try? handle.close()
+        }
+    }
+
+
+    private func readClipboardText() -> String {
+        if let clipboardText { return clipboardText }
+#if canImport(AppKit)
+        return NSPasteboard.general.string(forType: .string) ?? ""
+#else
+        return ""
+#endif
+    }
 
     private func applyControl(_ control: C0Control) {
         commandReducer.control(control)
@@ -697,13 +786,24 @@ public final class Terminal {
         modes = TerminalModes()
         selection = nil
         title = nil
+        tabTitle = nil
+        tabIcon = nil
+        emacsPromptMarker = nil
+        xProperties.removeAll(keepingCapacity: true)
+        specialColors.removeAll(keepingCapacity: true)
+        colorModes.removeAll(keepingCapacity: true)
+        itermUserVariables.removeAll(keepingCapacity: true)
+        itermCurrentDirectory = nil
+        itermShellIntegrationVersion = nil
+        itermRemoteHost = nil
+        itermFilesConsumed = 0
+        logFilePath = nil
         pointerShape = nil
         bellCount = 0
         scrollOffset = 0
         hyperlinks.removeAll(keepingCapacity: true)
         nextHyperlinkID = 1
         palette.removeAll(keepingCapacity: true)
-        resetTabStops()
         damage = .full
     }
 

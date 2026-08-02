@@ -57,6 +57,10 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
   public var boldIsBright: Bool
   /// WCAG contrast floor between text and its cell background. 1 disables it.
   public var minimumContrast: Double
+  /// OSC 46 can write arbitrary paths supplied by programs in a terminal.
+  public var allowLogFile: Bool
+  /// OSC 52 reads whatever the user last copied and can leak sensitive data.
+  public var allowClipboardRead: Bool
 
   public init(
     fontFamily: String = TerminalConfiguration.defaultFontFamily,
@@ -66,7 +70,9 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     cursorBlink: Bool = false,
     scrollbackCapacity: Int = 100_000,
     boldIsBright: Bool = false,
-    minimumContrast: Double = 1
+    minimumContrast: Double = 1,
+    allowLogFile: Bool = false,
+    allowClipboardRead: Bool = false
   ) {
     self.fontFamily = fontFamily
     self.fontSize = fontSize
@@ -76,6 +82,8 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     self.scrollbackCapacity = scrollbackCapacity
     self.boldIsBright = boldIsBright
     self.minimumContrast = max(1, minimumContrast)
+    self.allowLogFile = allowLogFile
+    self.allowClipboardRead = allowClipboardRead
   }
 }
 
@@ -361,7 +369,11 @@ public struct Configuration: Hashable, Sendable {
       boldIsBright: try boolean(
         terminalTable["bold-is-bright"], key: "terminal.bold-is-bright", default: false),
       minimumContrast: try number(
-        terminalTable["minimum-contrast"], key: "terminal.minimum-contrast", default: 1)
+        terminalTable["minimum-contrast"], key: "terminal.minimum-contrast", default: 1),
+      allowLogFile: try boolean(
+        terminalTable["allow-log-file"], key: "terminal.allow-log-file", default: false),
+      allowClipboardRead: try boolean(
+        terminalTable["allow-clipboard-read"], key: "terminal.allow-clipboard-read", default: false)
     )
     let rooms = try arrayOfTables(root["rooms"], key: "rooms", default: [])
       .enumerated().map { try room(from: $0.element, index: $0.offset) }
@@ -463,6 +475,8 @@ public struct Configuration: Hashable, Sendable {
         "scrollback-capacity": .integer(Int64(terminal.scrollbackCapacity)),
         "bold-is-bright": .boolean(terminal.boldIsBright),
         "minimum-contrast": .float(terminal.minimumContrast),
+        "allow-log-file": .boolean(terminal.allowLogFile),
+        "allow-clipboard-read": .boolean(terminal.allowClipboardRead),
       ]
     )
     root["rooms"] = .array(roomValues)

@@ -199,6 +199,10 @@ public final class AppModel {
     /// can never be half-applied.
     public func applyConfiguration(_ configuration: Configuration) async {
         self.configuration = configuration
+        await control.setTerminalPolicy(
+            TerminalPolicy(
+                allowLogFile: configuration.terminal.allowLogFile,
+                allowClipboardRead: configuration.terminal.allowClipboardRead))
         try? await roomStore.replaceRooms(configuration.rooms)
         rooms = await roomStore.rooms()
         refreshPalette()

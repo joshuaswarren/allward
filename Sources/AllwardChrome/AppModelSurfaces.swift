@@ -153,6 +153,28 @@ extension AppModel {
         return lines.joined(separator: "\n")
     }
 
+    /// The first columns of every row, as code points.
+    ///
+    /// A blank gutter can mean the program wrote nothing, wrote a space, or
+    /// wrote a glyph that failed to draw. Printed text cannot tell those apart,
+    /// so the cells are reported as numbers.
+    public func gutterDump(columns: Int = 6) -> String {
+        guard let pane = focusedPane, let snapshot = paneView(for: pane)?.snapshot
+        else { return "no pane" }
+        var lines: [String] = []
+        for row in 0 ..< snapshot.geometry.rows {
+            let cells = snapshot.rows[row].prefix(columns)
+            let codes = cells.map { cell -> String in
+                let scalars = cell.text.unicodeScalars.map { String(format: "%04X", $0.value) }
+                return scalars.isEmpty ? "----" : scalars.joined(separator: "+")
+            }
+            let rest = snapshot.plainText(row: row).trimmingCharacters(in: .whitespaces)
+            guard !rest.isEmpty else { continue }
+            lines.append("r\(row) [\(codes.joined(separator: " "))] \(rest.prefix(34))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The colour the grid actually holds for a given character.
     ///
     /// "It looks black-ish" is a colour report, not a glyph report, and no

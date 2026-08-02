@@ -481,26 +481,57 @@ public struct EscapeRecognizer: Sendable {
         let fields = String(decoding: payload, as: UTF8.self)
             .split(separator: ";", omittingEmptySubsequences: false).map(String.init)
         guard let command = fields.first.flatMap(Int.init) else { return }
+        let terminator = lastStringTerminator
         switch command {
         case 0, 1, 2, 20:
             emit(.setTitle(fields.dropFirst().joined(separator: ";")))
         case 3:
-            // OSC 3 (set X server property) is obsolete and safely ignored.
-            break
+            guard fields.count > 1, !fields[1].isEmpty else { return }
+            let key: String
+            let value: String
+            if fields.count > 2 {
+                key = fields[1]
+                value = fields.dropFirst(2).joined(separator: ";")
+            } else {
+                let pair = fields[1].split(separator: "=", maxSplits: 1).map(String.init)
+                guard pair.count == 2 else { return }
+                key = pair[0]
+                value = pair[1]
+            }
+            emit(.setXProperty(key: key, value: value))
         case 4:
             var index = 1
-            while index < fields.count {
+            while index + 1 < fields.count {
                 guard let paletteIndex = UInt8(fields[index]) else { break }
-                guard index + 1 < fields.count else { break }
                 let value = fields[index + 1]
-                if value == "?" { emit(.reportPaletteColor(index: paletteIndex, terminator: lastStringTerminator)) }
-                else { emit(.setPalette(index: paletteIndex, value: value)) }
+                if value == "?" {
+                    emit(.reportPaletteColor(index: paletteIndex, terminator: terminator))
+                } else {
+                    emit(.setPalette(index: paletteIndex, value: value))
+                }
                 index += 2
             }
-        case 5, 6, 105, 106:
-            // Special color change/query/reset (VT220 bold/underline/blink/reverse overrides).
-            // Safely ignored because Allward handles cell formatting via SGR attributes.
-            break
+        case 5:
+            var index = 1
+            while index + 1 < fields.count {
+                guard let colorIndex = UInt8(fields[index]) else { break }
+                let value = fields[index + 1]
+                if value == "?" {
+                    emit(.reportSpecialColor(index: colorIndex, terminator: terminator))
+                } else {
+                    emit(.setSpecialColor(index: colorIndex, value: value))
+                }
+                index += 2
+            }
+        case 6:
+            var index = 1
+            while index + 1 < fields.count {
+                guard let colorIndex = UInt8(fields[index]),
+                      let enabled = Int(fields[index + 1]).map({ $0 != 0 })
+                else { break }
+                emit(.setColorMode(index: colorIndex, enabled: enabled))
+                index += 2
+            }
         case 7:
             emit(.setWorkingDirectory(fields.dropFirst().joined(separator: ";")))
         case 8:
@@ -509,15 +540,12 @@ public struct EscapeRecognizer: Sendable {
         case 9:
             emit(.notification(title: "", body: fields.dropFirst().joined(separator: ";")))
         case 10...19:
-            // Dynamic colors: consecutive slots starting from command.
-            // OSC 10;#fff;#000 sets slot 10 to #fff and slot 11 to #000.
             let params = Array(fields.dropFirst())
-            if params.isEmpty { break }
             for (offset, value) in params.enumerated() {
                 let slot = command + offset
                 guard slot <= 19 else { break }
                 if value == "?" {
-                    emit(.reportDynamicColor(slot: slot, terminator: lastStringTerminator))
+                    emit(.reportDynamicColor(slot: slot, terminator: terminator))
                 } else if !value.isEmpty {
                     emit(.setDynamicColor(slot: slot, value: value))
                 }
@@ -525,33 +553,34 @@ public struct EscapeRecognizer: Sendable {
         case 21:
             let value = fields.dropFirst().joined(separator: ";")
             if value == "?" {
-                emit(.reportTitle(terminator: lastStringTerminator))
+                emit(.reportTitle(terminator: terminator))
             } else if !value.isEmpty {
                 emit(.setTitle(value))
             }
         case 22:
             emit(.setPointerShape(fields.dropFirst().joined(separator: ";")))
-        case 30, 31, 51:
-            // Legacy rxvt / emacs font & shell integration commands. Safely ignored.
-            break
+        case 30:
+            emit(.setTabTitle(fields.dropFirst().joined(separator: ";")))
+        case 31:
+            emit(.setTabIcon(fields.dropFirst().joined(separator: ";")))
         case 46:
-            // SECURITY HAZARD: OSC 46 (change logfile name) MUST NEVER create or write to a file.
-            // Safely ignored to prevent untrusted pty programs from writing to arbitrary paths.
-            break
+            emit(.setLogFile(fields.dropFirst().joined(separator: ";")))
         case 50:
             let value = fields.dropFirst().joined(separator: ";")
             if value == "?" {
-                emit(.reportFont(terminator: lastStringTerminator))
+                emit(.reportFont(terminator: terminator))
             } else {
                 emit(.setFont(value))
             }
+        case 51:
+            emit(.setEmacsPromptMarker(fields.dropFirst().joined(separator: ";")))
         case 52:
             guard fields.count > 2 else { return }
-            let payload = fields.dropFirst(2).joined(separator: ";")
-            emit(.clipboard(selection: fields[1], base64: payload == "?" ? nil : payload))
+            let value = fields.dropFirst(2).joined(separator: ";")
+            emit(.clipboard(
+                selection: fields[1], base64: value == "?" ? nil : value, terminator: terminator))
         case 60:
-            // Tektronix vector graphics control. Safely ignored.
-            break
+            emit(.reportFeatureCapabilities(terminator: terminator))
         case 104:
             if fields.count > 1, !fields[1].isEmpty {
                 for field in fields.dropFirst() {
@@ -559,6 +588,34 @@ public struct EscapeRecognizer: Sendable {
                 }
             } else {
                 emit(.resetPalette(index: nil))
+            }
+        case 105:
+            if fields.count > 1, !fields[1].isEmpty {
+                for field in fields.dropFirst() {
+                    if let colorIndex = UInt8(field) { emit(.resetSpecialColor(index: colorIndex)) }
+                }
+            } else {
+                emit(.resetSpecialColor(index: nil))
+            }
+        case 106:
+            var index = 1
+            var emitted = false
+            while index + 1 < fields.count {
+                guard let colorIndex = UInt8(fields[index]) else { break }
+                if let enabled = Int(fields[index + 1]) {
+                    emit(.setColorMode(index: colorIndex, enabled: enabled != 0))
+                } else if fields[index + 1] == "?" {
+                    emit(.reportSpecialColor(index: colorIndex, terminator: terminator))
+                } else {
+                    break
+                }
+                emitted = true
+                index += 2
+            }
+            if !emitted {
+                for field in fields.dropFirst() {
+                    if let colorIndex = UInt8(field) { emit(.resetSpecialColor(index: colorIndex)) }
+                }
             }
         case 110...119:
             let startSlot = command - 100
@@ -581,16 +638,30 @@ public struct EscapeRecognizer: Sendable {
             }
             emit(.commandMarker(OSCCommandMarker(phase: phase, parameters: metadata)))
         case 777:
-            // rxvt's form: `777;notify;title;body`.
             guard fields.count > 2, fields[1] == "notify" else { return }
             emit(
                 .notification(
                     title: fields[2], body: fields.dropFirst(3).joined(separator: ";")))
         case 1337:
-            // iTerm2 proprietary escape sequences. Safely ignored.
-            break
+            guard fields.count > 1 else { return }
+            let member = fields[1]
+            if member.hasPrefix("SetUserVar=") {
+                let assignment = String(member.dropFirst("SetUserVar=".count))
+                let pair = assignment.split(separator: "=", maxSplits: 1).map(String.init)
+                guard pair.count == 2 else { return }
+                emit(.setITermUserVariable(key: pair[0], value: pair[1]))
+            } else if member.hasPrefix("CurrentDir=") {
+                emit(.setITermCurrentDirectory(String(member.dropFirst("CurrentDir=".count))))
+            } else if member.hasPrefix("ShellIntegrationVersion=") {
+                emit(.setITermShellIntegrationVersion(
+                    String(member.dropFirst("ShellIntegrationVersion=".count))))
+            } else if member.hasPrefix("RemoteHost=") {
+                emit(.setITermRemoteHost(String(member.dropFirst("RemoteHost=".count))))
+            } else if member.hasPrefix("File=") {
+                emit(.consumeITermFile)
+            }
         default:
-            // Uncatalogued OSC sequence. Safely ignored without side effects.
+            // OSC numbers outside the terminal's defined command set are ignored.
             break
         }
     }

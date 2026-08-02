@@ -22,10 +22,17 @@ public actor ControlService {
     let roomStore: RoomStore
     let surfaceStore: SurfaceStore
     let connectionBound: AttemptBound
+    /// What a program is allowed to do to the machine, from configuration.
+    /// Both default off; see `TerminalConfiguration`.
+    var terminalPolicy = TerminalPolicy()
     var inputRoutes: [PaneID: InputRouteState] = [:]
     var inputOwnership: [PaneID: Generation] = [:]
     var commandReceipts: [IdempotencyKey: CommandExecutionReceipt] = [:]
     var commandReceiptOrder: [IdempotencyKey] = []
+
+    public func setTerminalPolicy(_ policy: TerminalPolicy) {
+        terminalPolicy = policy
+    }
 
     /// Publishes the theme's colours to every engine so `OSC 10/11/12` queries
     /// are answered with what is actually on screen.
@@ -261,7 +268,9 @@ public actor ControlService {
                 Session(
                     channel: channel,
                     geometry: geometry,
-                    clock: clock
+                    clock: clock,
+                    allowLogFile: terminalPolicy.allowLogFile,
+                    allowClipboardRead: terminalPolicy.allowClipboardRead
                 )
             )
         } catch let error as AllwardError {
