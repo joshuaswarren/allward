@@ -1,7 +1,7 @@
 import AllwardCore
 import XCTest
 
-@testable import AllwardChrome
+@testable import AllwardPlatformDevID
 @testable import AllwardHerdr
 @testable import AllwardMultiplexer
 /// Allward has to notice the herdr you are already using.

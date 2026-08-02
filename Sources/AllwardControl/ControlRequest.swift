@@ -15,6 +15,38 @@ public protocol ControlSocketServing: Sendable {
     func stop()
 }
 
+/// The platform capabilities a product supplies, so shared code never imports
+/// one.
+///
+/// `AllwardPlatformDevID` spawns local shells, reads the process table, and binds
+/// an AF_UNIX control socket. `AllwardPlatformMAS` does none of those, which is
+/// why SPEC §2 can require the difference to be a fact about the link graph
+/// rather than a runtime check that could be wrong.
+///
+/// Nothing here returns a path or a process. A container layout is the platform's
+/// business, so the socket is started rather than located, and the adapter is
+/// built rather than described.
+public protocol PlatformServices: Sendable {
+    /// Transports the control layer may use, in preference order. The Developer
+    /// ID product offers a local shell; MAS is remote-only and does not.
+    var transports: [any RemoteTransport] { get }
+
+    /// Starts the control socket the MCP helper connects to, and returns the
+    /// running host so it can be stopped. `nil` means this product owns no
+    /// listener path, which is not an error.
+    func startControlSocket(
+        handler: any ControlRequestHandling
+    ) throws -> (any ControlSocketServing)?
+
+    /// The multiplexer adapter for a host, or a no-adapter state. Adapter
+    /// construction lives here so no shared target links the adapter.
+    func makeMultiplexerAdapter(host: HostAlias?) -> any MultiplexerAdapter
+
+    /// A herdr this product can find without being told, or `nil` where servers
+    /// must be declared. Discovery reads the process table, so MAS has none.
+    func discoverAdapterHost() async -> HostAlias?
+}
+
 public struct ControlAdapterSession: Codable, Hashable, Sendable {
     public var id: String
     public var workspace: String

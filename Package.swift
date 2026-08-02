@@ -58,16 +58,35 @@ import PackageDescription
             dependencies: [
                 "AllwardCore", "AllwardDesign", "AllwardRenderer", "AllwardControl",
                 "AllwardSurfaces", "AllwardRooms", "AllwardSpeech", "AllwardIntelligence",
-                "AllwardConcierge", "AllwardConfig", "AllwardProtocol",
-                "AllwardHerdr", "AllwardMCP",
+                "AllwardConcierge", "AllwardConfig", "AllwardProtocol", "AllwardMCP",
             ]
         ),
-        .executableTarget(name: "allward", dependencies: ["AllwardChrome"]),
-        // The MAS product of decision 5. It declares the dependency it must
-        // eventually carry, so the isolation receipts in
-        // scripts/mas-isolation-receipts.py resolve a real graph and report
-        // every forbidden target still reachable through it.
-        .executableTarget(name: "allward-mas", dependencies: ["AllwardChrome"]),
+        // Platform capability modules. `AllwardChrome` sees only the
+        // `PlatformServices` protocol, so these are the only targets that hold a
+        // local shell, a process launch, or a socket bind, and which of them a
+        // product links is what SPEC §2 measures.
+        .target(
+            name: "AllwardPlatformDevID",
+            dependencies: [
+                "AllwardCore", "AllwardControl", "AllwardRemote", "AllwardMultiplexer",
+                "AllwardLocalPTY", "AllwardSSH", "AllwardHerdr",
+            ]
+        ),
+        .target(
+            name: "AllwardPlatformMAS",
+            dependencies: [
+                "AllwardCore", "AllwardControl", "AllwardRemote", "AllwardMultiplexer",
+                "AllwardSSH", "AllwardHerdr",
+            ]
+        ),
+        .executableTarget(
+            name: "allward",
+            dependencies: ["AllwardChrome", "AllwardPlatformDevID"]
+        ),
+        .executableTarget(
+            name: "allward-mas",
+            dependencies: ["AllwardChrome", "AllwardPlatformMAS"]
+        ),
         .executableTarget(name: "allward-mcp", dependencies: ["AllwardMCP"]),
         .executableTarget(
             name: "allward-qa",
@@ -77,6 +96,10 @@ import PackageDescription
         .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),
         .testTarget(name: "AllwardMCPTests", dependencies: ["AllwardMCP"]),
         .testTarget(name: "AllwardChromeTests", dependencies: ["AllwardChrome"]),
+        .testTarget(
+            name: "AllwardPlatformDevIDTests",
+            dependencies: ["AllwardPlatformDevID"]
+        ),
         .testTarget(name: "AllwardRendererTests", dependencies: ["AllwardRenderer"]),
     ]
     let darwinProducts: [Product] = [

@@ -1,5 +1,5 @@
+import AllwardControl
 import AllwardCore
-import AllwardHerdr
 import AllwardMultiplexer
 import AllwardRooms
 import Foundation
@@ -14,12 +14,14 @@ import Foundation
 /// visit.
 public actor RoomAdapters {
     private let switchable: SwitchableAdapter
+    private let platform: any PlatformServices
     private var adapters: [RoomID: any MultiplexerAdapter] = [:]
     private var hosts: [RoomID: HostAlias?] = [:]
     private var active: RoomID?
 
-    public init(switchable: SwitchableAdapter) {
+    public init(switchable: SwitchableAdapter, platform: any PlatformServices) {
         self.switchable = switchable
+        self.platform = platform
     }
 
     /// Point the shared reference at `room`'s adapter, building it on first use.
@@ -61,20 +63,11 @@ public actor RoomAdapters {
         if let declared = room.herdrHost {
             host = declared
         } else {
-            host = await HerdrDiscovery.attachedHost()
+            host = await platform.discoverAdapterHost()
         }
-        let built = Self.make(host: host)
+        let built = platform.makeMultiplexerAdapter(host: host)
         adapters[room.id] = built
         hosts[room.id] = room.herdrHost
         return built
-    }
-
-    /// A missing declaration can still resolve a herdr attached to one of our
-    /// panes; explicit declarations never use discovery.
-    public static func make(host: HostAlias?) -> any MultiplexerAdapter {
-        guard let endpoint = HerdrProcessExecutor.endpoint(host: host) else {
-            return NoMultiplexerAdapter()
-        }
-        return HerdrAdapter(client: HerdrProcessExecutor.makeClient(for: endpoint))
     }
 }

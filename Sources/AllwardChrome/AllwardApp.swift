@@ -2,7 +2,6 @@ import AllwardConfig
 import AllwardControl
 import AllwardCore
 import AllwardDesign
-import AllwardHerdr
 import AllwardMultiplexer
 import AllwardRooms
 import AllwardSurfaces
@@ -14,9 +13,18 @@ import SwiftUI
 @MainActor
 public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     public private(set) var model: AppModel!
+    private let platform: any PlatformServices
     private var mainWindow: MainWindowController?
-    private var socketHost: ControlSocketHost?
+    private var socketHost: (any ControlSocketServing)?
     private var configurationReloader: ConfigurationReloader?
+
+    /// The product supplies its own capabilities. There is no default, because a
+    /// default would let the sandboxed product silently acquire the Developer ID
+    /// one and defeat the whole exclusion.
+    public init(platform: any PlatformServices) {
+        self.platform = platform
+        super.init()
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -38,10 +46,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
         let roomStore = RoomStore(rooms: configuration.rooms)
         let surfaces = SurfaceStore(clock: SystemClock())
-        let adapterSetup = await Self.makeAdapter(for: configuration)
+        let adapterSetup = await Self.makeAdapter(for: configuration, platform: platform)
         let model = AppModel(
             configuration: configuration, roomStore: roomStore, surfaces: surfaces,
-            adapter: adapterSetup.adapter, roomAdapters: adapterSetup.roomAdapters)
+            adapter: adapterSetup.adapter, platform: platform,
+            roomAdapters: adapterSetup.roomAdapters)
         self.model = model
         model.configurationLoadFailure = loaded.failure
         await model.loadRooms()
@@ -69,11 +78,10 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     private func startControlSocket(for model: AppModel) {
         guard model.configuration.mcpEnabled else { return }
-        let host = ControlSocketHost()
-        socketHost = host
-        Task.detached(priority: .userInitiated) {
+        Task.detached(priority: .userInitiated) { [platform] in
             do {
-                try host.start(handler: model.control, at: ControlSocketHost.defaultPath())
+                let host = try platform.startControlSocket(handler: model.control)
+                await MainActor.run { self.socketHost = host }
             } catch {
                 NSLog("Allward: the app control socket could not start: \(error)")
             }
@@ -128,10 +136,11 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
 
     private static func makeAdapter(
-        for configuration: Configuration
+        for configuration: Configuration,
+        platform: any PlatformServices
     ) async -> (adapter: SwitchableAdapter, roomAdapters: RoomAdapters) {
         let adapter = SwitchableAdapter()
-        let roomAdapters = RoomAdapters(switchable: adapter)
+        let roomAdapters = RoomAdapters(switchable: adapter, platform: platform)
         await roomAdapters.activate(configuration.rooms.first)
         return (adapter: adapter, roomAdapters: roomAdapters)
     }

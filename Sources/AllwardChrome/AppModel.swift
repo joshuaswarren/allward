@@ -2,12 +2,9 @@ import AllwardConfig
 import AllwardControl
 import AllwardCore
 import AllwardDesign
-import AllwardLocalPTY
 import AllwardMultiplexer
 import AllwardRenderer
-
 import AllwardRooms
-import AllwardSSH
 import AllwardSurfaces
 import AllwardTerminal
 import AppKit
@@ -43,6 +40,9 @@ public final class AppModel {
 
     private let clock: any AllwardClock
     let adapter: any MultiplexerAdapter
+    /// What this product can actually do. Chrome asks; it never imports a
+    /// capability itself.
+    let platform: any PlatformServices
     private let roomAdapters: RoomAdapters?
     private var paneViews: [PaneID: TerminalPaneView] = [:]
     private var paneContainers: [PaneID: PaneContainerView] = [:]
@@ -70,6 +70,7 @@ public final class AppModel {
         roomStore: RoomStore,
         surfaces: SurfaceStore,
         adapter: any MultiplexerAdapter,
+        platform: any PlatformServices,
         roomAdapters: RoomAdapters? = nil,
         clock: any AllwardClock = SystemClock()
     ) {
@@ -77,6 +78,7 @@ public final class AppModel {
         self.roomStore = roomStore
         self.surfaces = surfaces
         self.adapter = adapter
+        self.platform = platform
         self.roomAdapters = roomAdapters
         self.clock = clock
         self.theme = TerminalThemeBridge.rendererTheme(
@@ -86,7 +88,7 @@ public final class AppModel {
             appearance: .dark, settings: SystemAccessibility.current(), contentSize: .medium)
         self.topology = TopologySnapshot(generation: .initial, windows: [], panes: [])
         self.control = ControlService(
-            transports: [LocalPTYTransport(), SSHTransport()],
+            transports: platform.transports,
             adapter: adapter,
             clock: clock,
             roomStore: roomStore,

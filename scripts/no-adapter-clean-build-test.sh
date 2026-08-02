@@ -11,13 +11,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ADAPTER="AllwardHerdr"
-# Every target except the adapter itself and the app shell, which is the one
-# place allowed to construct an adapter.
+# Every target except the adapter itself and the platform modules, which are the
+# only place allowed to construct an adapter.
+#
+# `AllwardChrome` is in this list since phase 3 of docs/MAS-PLAN.md. It used to
+# build herdr adapters itself and so had to be exempt; adapter construction now
+# lives behind `PlatformServices`, which makes the app shell adapter-clean and
+# lets this proof cover the largest target in the tree.
 CORE_TARGETS=(
     AllwardCore AllwardDesign AllwardTerminal AllwardProtocol AllwardRooms
     AllwardSurfaces AllwardMultiplexer AllwardConfig AllwardRemote
     AllwardLocalPTY AllwardSSH AllwardLocalPublisherEndpoint AllwardRenderer
     AllwardIntelligence AllwardSpeech AllwardControl AllwardConcierge AllwardMCP
+    AllwardChrome
 )
 
 status=0

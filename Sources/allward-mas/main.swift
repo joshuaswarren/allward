@@ -1,30 +1,36 @@
+import AllwardChrome
+import AllwardPlatformMAS
+import AppKit
 import Foundation
 
 // The MAS product of decision 5: sandboxed, remote-only, built from the same
 // revision as the Developer ID app.
 //
-// It refuses to launch. The shared graph still reaches `AllwardLocalPTY`
-// through `AllwardSSH`, `AllwardControl`, and `AllwardChrome`, so this binary
-// cannot honestly claim to be remote-only, and a product labelled MAS that
-// offered a local shell is the one thing MAS must never be. Phase 3 of
-// docs/MAS-PLAN.md moves that code behind injected protocols; this refusal is
-// deleted in the same change that makes a real launch possible.
+// `AllwardPlatformMAS` is what makes this the sandboxed build. It offers direct
+// SSH and nothing else: no local shell, no control-socket listener, and no
+// process-table discovery, so a Room's server is declared rather than found.
 //
-// The `AllwardChrome` dependency is declared in Package.swift and deliberately
-// not imported here. Declaring it is what gives receipt 1 a graph to resolve,
-// and that receipt is the measure of this phase.
+// It still refuses to launch. `AllwardSSH` opens sessions by launching
+// `/usr/bin/ssh`, so this binary would spawn a child even though the platform
+// offers no local shell, and a product labelled MAS must not. Phase 2 of
+// docs/MAS-PLAN.md replaces that transport with russh; this refusal and the
+// `exit` below are deleted in the same change.
+
+let platform = MASPlatform()
 
 let message = """
-allward-mas cannot launch: MAS isolation is unproven.
+allward-mas cannot launch yet: the SSH transport still spawns a process.
 
-The shared module graph still reaches AllwardLocalPTY, so this binary cannot \
-claim to be remote-only. To see the current graph and what still violates it:
+The platform is already correct. MASPlatform offers \(platform.transports.count) \
+transport(s), no control-socket listener, and no process-table discovery. What is \
+missing is underneath it: AllwardSSH opens a session by launching /usr/bin/ssh.
+
+To see what remains:
 
     python3 scripts/mas-isolation-receipts.py
 
-docs/MAS-PLAN.md phase 3 relocates local platform code behind protocols \
-declared in shared code. This entry point becomes the application when \
-receipt 1 reports no forbidden target.
+docs/MAS-PLAN.md phase 2 puts russh behind the RemoteTransport facade. This \
+entry point becomes the application in that change.
 
 """
 
