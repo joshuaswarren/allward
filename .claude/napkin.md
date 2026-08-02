@@ -8,6 +8,7 @@
 | 2026-08-02 | self | A narrow test hunk replaced an assertion at the edge and duplicated the neighboring assertion. | Treat test assertions as structural lines too; reread the full test method after each hunk. |
 | 2026-08-02 | self | Deleted an unused `import struct` by line number without re-reading, and removed `from dataclasses import ...` instead. Third edit of this exact shape; the two notes above did not prevent it. | Never trust a remembered line number for a one-line CUT. Re-read the exact line first and confirm its text, every time, even for a one-line deletion. |
 | 2026-08-02 | self | Wrote three dependency paths into MAS-PLAN.md from what the receipt "would" report, then found the real output listed different ones. | Terminal truncation is not the file. Extract the untruncated text before quoting tool output in a doc. |
+| 2026-08-02 | Joshua | Argued against installing `cbindgen` on two bad grounds: called it a "build dependency" when it is a dev tool that generates a committed artifact, and called the SSH C ABI "small" without enumerating it. Installing it took 16 seconds. | Price the objection before making it. A tool that generates a reviewable, committed artifact is not a dependency of the build that reads it. And do not call a surface small without listing it. |
 
 ## Patterns That Work
 - Room herdr settings must update the active Room by ID, not the first Room with an adapter.
