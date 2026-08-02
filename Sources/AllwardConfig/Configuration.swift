@@ -110,12 +110,23 @@ public struct HostConfiguration: Codable, Hashable, Sendable {
   public var hostname: String
   public var user: String?
   public var port: Int
+  /// Private key for this host. A sandboxed product cannot read `~/.ssh/config`,
+  /// so an identity is named here or not at all; the Developer ID product reads
+  /// the file, and the sandboxed one signs through its credential store.
+  public var identityFile: String?
 
-  public init(alias: HostAlias, hostname: String, user: String? = nil, port: Int = 22) {
+  public init(
+    alias: HostAlias,
+    hostname: String,
+    user: String? = nil,
+    port: Int = 22,
+    identityFile: String? = nil
+  ) {
     self.alias = alias
     self.hostname = hostname
     self.user = user
     self.port = port
+    self.identityFile = identityFile
   }
 }
 
@@ -482,6 +493,11 @@ public struct Configuration: Hashable, Sendable {
       } else {
         table.removeValue(forKey: "user")
       }
+      if let identityFile = host.identityFile {
+        table["identity-file"] = .string(identityFile)
+      } else {
+        table.removeValue(forKey: "identity-file")
+      }
       return .table(table)
     }
     var root = sourceRoot
@@ -637,7 +653,8 @@ public struct Configuration: Hashable, Sendable {
       alias: HostAlias(try string(table["alias"], key: "\(prefix).alias")),
       hostname: try string(table["hostname"], key: "\(prefix).hostname"),
       user: try optionalString(table["user"], key: "\(prefix).user"),
-      port: try integer(table["port"], key: "\(prefix).port", default: 22)
+      port: try integer(table["port"], key: "\(prefix).port", default: 22),
+      identityFile: try optionalString(table["identity-file"], key: "\(prefix).identity-file")
     )
   }
 

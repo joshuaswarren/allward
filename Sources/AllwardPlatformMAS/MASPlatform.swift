@@ -10,12 +10,16 @@ import AllwardSSH
 /// Every difference from `DevIDPlatform` is a measured sandbox constraint rather
 /// than a policy choice. See docs/evidence/SANDBOX.md.
 public struct MASPlatform: PlatformServices {
+    /// Configured hosts. A sandboxed product cannot read ~/.ssh/config, so this
+    /// is the only place an alias resolves.
+    public let hosts = RemoteHostDirectory()
+
     public init() {}
 
     /// Direct SSH and nothing else. Decision 5 makes MAS remote-only, and there
     /// is no reduced local shell to fall back to.
     public var transports: [any RemoteTransport] {
-        [SSHTransport()]
+        [RusshTransport(hosts: hosts)]
     }
 
     /// None. A sandboxed product owns no listener path outside its container, and
@@ -32,6 +36,11 @@ public struct MASPlatform: PlatformServices {
     /// truthfully yields the no-adapter state rather than a process launch.
     public func makeMultiplexerAdapter(host: HostAlias?) -> any MultiplexerAdapter {
         NoMultiplexerAdapter()
+    }
+
+    /// Publishes the configured hosts an alias resolves against.
+    public func apply(hosts configured: [RemoteHost]) {
+        hosts.replace(with: configured)
     }
 
     /// Never. Discovery reads the process table, which this product must not do,

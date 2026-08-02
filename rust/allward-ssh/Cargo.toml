@@ -1,0 +1,19 @@
+[package]
+name = "allward-ssh"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "In-process SSH transport for Allward, exposed over a C ABI."
+
+[lib]
+name = "allward_ssh"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+russh = "0.62"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+
+[dev-dependencies]
+parking_lot = "0.12"
+tokio = { version = "1", features = ["full"] }

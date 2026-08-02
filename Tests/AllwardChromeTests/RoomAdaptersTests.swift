@@ -38,6 +38,8 @@ final class RoomAdaptersTests: XCTestCase {
             discoveryCalls += 1
             return nil
         }
+
+        func apply(hosts: [RemoteHost]) {}
     }
 
     private final class NamedAdapter: MultiplexerAdapter {

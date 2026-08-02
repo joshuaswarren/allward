@@ -3,6 +3,7 @@ import AllwardControl
 import AllwardCore
 import AllwardDesign
 import AllwardMultiplexer
+import AllwardRemote
 import AllwardRenderer
 import AllwardRooms
 import AllwardSurfaces
@@ -87,6 +88,9 @@ public final class AppModel {
         self.palette = DesignPalette(
             appearance: .dark, settings: SystemAccessibility.current(), contentSize: .medium)
         self.topology = TopologySnapshot(generation: .initial, windows: [], panes: [])
+        // Hosts before transports: a session opened during launch must be able to
+        // resolve its alias, and the directory is read at open time.
+        platform.apply(hosts: Self.remoteHosts(from: configuration))
         self.control = ControlService(
             transports: platform.transports,
             adapter: adapter,
@@ -204,6 +208,7 @@ public final class AppModel {
     /// can never be half-applied.
     public func applyConfiguration(_ configuration: Configuration) async {
         self.configuration = configuration
+        platform.apply(hosts: Self.remoteHosts(from: configuration))
         await control.setTerminalPolicy(
             TerminalPolicy(
                 allowLogFile: configuration.terminal.allowLogFile,
@@ -217,6 +222,26 @@ public final class AppModel {
                 family: configuration.terminal.fontFamily, size: configuration.terminal.fontSize)
         }
         await refreshSurfaceProjection()
+    }
+
+    /// Translates configured hosts into what the transport needs.
+    ///
+    /// A missing `user` falls back to the account running Allward, which is what
+    /// `ssh` does with an unqualified host, so the common config stays short.
+    /// `~` is expanded here because a sandboxed product's home is its container
+    /// and the transport must be handed a real path.
+    static func remoteHosts(from configuration: Configuration) -> [RemoteHost] {
+        configuration.hosts.map { host in
+            RemoteHost(
+                alias: host.alias,
+                hostname: host.hostname,
+                port: UInt16(clamping: host.port),
+                user: host.user ?? NSUserName(),
+                identityFile: host.identityFile.map {
+                    ($0 as NSString).expandingTildeInPath
+                }
+            )
+        }
     }
 
     public func loadRooms() async {

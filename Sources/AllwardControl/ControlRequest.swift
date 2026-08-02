@@ -45,6 +45,13 @@ public protocol PlatformServices: Sendable {
     /// A herdr this product can find without being told, or `nil` where servers
     /// must be declared. Discovery reads the process table, so MAS has none.
     func discoverAdapterHost() async -> HostAlias?
+
+    /// Publishes the configured hosts an SSH alias resolves against.
+    ///
+    /// Configuration reloads while sessions are open, so this is called again on
+    /// every reload rather than read once at launch. It replaces the set: a host
+    /// removed from the file must stop resolving.
+    func apply(hosts: [RemoteHost])
 }
 
 public struct ControlAdapterSession: Codable, Hashable, Sendable {

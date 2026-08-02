@@ -13,12 +13,15 @@ import AllwardSSH
 /// `PlatformServices` and never imports `AllwardLocalPTY`, which is what makes
 /// the MAS exclusion a fact about the link graph instead of a promise.
 public struct DevIDPlatform: PlatformServices {
+    /// Configured hosts, republished on every configuration reload.
+    public let hosts = RemoteHostDirectory()
+
     public init() {}
 
     /// Local first: an unqualified destination is this machine, and asking SSH
     /// to consider it would be a round trip to nowhere.
     public var transports: [any RemoteTransport] {
-        [LocalPTYTransport(), SSHTransport()]
+        [LocalPTYTransport(), RusshTransport(hosts: hosts)]
     }
 
     public func startControlSocket(
@@ -36,6 +39,10 @@ public struct DevIDPlatform: PlatformServices {
             return NoMultiplexerAdapter()
         }
         return HerdrAdapter(client: HerdrProcessExecutor.makeClient(for: endpoint))
+    }
+
+    public func apply(hosts configured: [RemoteHost]) {
+        hosts.replace(with: configured)
     }
 
     public func discoverAdapterHost() async -> HostAlias? {

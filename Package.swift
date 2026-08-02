@@ -20,6 +20,19 @@ import PackageDescription
 #if os(macOS)
     let darwinTargets: [Target] = [
         .target(name: "CAllwardPTY", path: "Sources/CAllwardPTY", publicHeadersPath: "include"),
+        // The Rust SSH transport of decision 40. This target carries only the
+        // generated header; the implementation arrives as a static archive that
+        // `scripts/build-rust.sh` stages, because SwiftPM cannot build Rust.
+        // `scripts/rust-header-drift.sh` proves the header still matches the Rust.
+        .target(
+            name: "CAllwardSSH",
+            path: "Sources/CAllwardSSH",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .unsafeFlags(["-L.build-rust/lib"]),
+                .linkedLibrary("allward_ssh"),
+            ]
+        ),
         .target(
             name: "AllwardConfig",
             dependencies: ["AllwardCore", "AllwardRooms", "AllwardDesign"]
@@ -29,7 +42,13 @@ import PackageDescription
             name: "AllwardLocalPTY",
             dependencies: ["AllwardCore", "AllwardRemote", "CAllwardPTY"]
         ),
-        .target(name: "AllwardSSH", dependencies: ["AllwardCore", "AllwardRemote", "AllwardLocalPTY"]),
+        // No `AllwardLocalPTY`. That edge is what made a MAS product impossible,
+        // and phase 2 of docs/MAS-PLAN.md removed it by replacing the
+        // process-launching transport with russh.
+        .target(
+            name: "AllwardSSH",
+            dependencies: ["AllwardCore", "AllwardRemote", "CAllwardSSH"]
+        ),
         .target(name: "AllwardHerdr", dependencies: ["AllwardCore", "AllwardMultiplexer", "AllwardRemote"]),
         .target(
             name: "AllwardLocalPublisherEndpoint",
@@ -59,6 +78,7 @@ import PackageDescription
                 "AllwardCore", "AllwardDesign", "AllwardRenderer", "AllwardControl",
                 "AllwardSurfaces", "AllwardRooms", "AllwardSpeech", "AllwardIntelligence",
                 "AllwardConcierge", "AllwardConfig", "AllwardProtocol", "AllwardMCP",
+                "AllwardRemote",
             ]
         ),
         // Platform capability modules. `AllwardChrome` sees only the
@@ -92,6 +112,7 @@ import PackageDescription
             name: "allward-qa",
             dependencies: ["AllwardChrome", "AllwardDesign", "AllwardRenderer", "AllwardTerminal"]
         ),
+        .testTarget(name: "AllwardSSHTests", dependencies: ["AllwardSSH"]),
         .testTarget(name: "AllwardControlTests", dependencies: ["AllwardControl"]),
         .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),
         .testTarget(name: "AllwardMCPTests", dependencies: ["AllwardMCP"]),
