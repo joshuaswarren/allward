@@ -45,6 +45,7 @@ public struct BoardView: View {
                 filterField
                 stateNotice
                 if state.state != .noSessions {
+                    keyLegend
                     columnHeader
                     boardContent
                 }
@@ -215,13 +216,26 @@ public struct BoardView: View {
             }
             Text("Freshness")
                 .frame(width: freshnessColumnWidth, alignment: .leading)
-            Text("Destination")
+            Text("Press to jump")
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, StrokeToken.roomSeam.width(palette.settings) + SpaceToken.blockStandard.points)
         .tokenFont(.uiCaption, palette)
         .tokenForeground(.textSecondary, palette)
         .accessibilityHidden(true)
+    }
+
+    /// A column headed "Destination" showing a bare digit told nobody what the
+    /// digit was for, and "No key" beside the rest read as something missing
+    /// rather than something not needed. The numbers go to the sessions the
+    /// attention router has picked out, so that is what it says.
+    private var keyLegend: some View {
+        Text("Numbered sessions need attention. Press the number to go there.")
+            .tokenFont(.uiCaption, palette)
+            .tokenForeground(.textSecondary, palette)
+            .padding(
+                .leading,
+                StrokeToken.roomSeam.width(palette.settings) + SpaceToken.blockStandard.points)
     }
 
     private func boardRow(_ row: BoardViewState.Row) -> some View {
@@ -258,10 +272,10 @@ public struct BoardView: View {
                 DestinationKeyCap(key: destinationKey, target: row.subject.target)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text("No key")
+                Text("—")
                     .tokenFont(.uiData, palette)
                     .tokenForeground(.textSecondary, palette)
-                    .accessibilityLabel("No destination key")
+                    .accessibilityLabel("No jump key; this session does not need attention")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

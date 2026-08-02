@@ -20,6 +20,21 @@ public enum CursorShape: String, Codable, Hashable, Sendable, CaseIterable {
   case underline
 }
 
+/// When the attention bar along the bottom of the window is shown.
+///
+/// It appeared on its own the moment an adapter started reporting sessions,
+/// with no way to keep it or send it away. Automatic is still the default -
+/// a band that says "nothing needs you" earns nothing - but the choice is now
+/// the user's to make.
+public enum AttentionBarVisibility: String, Codable, Hashable, Sendable, CaseIterable {
+  /// Present only when something needs attention or an action has spoken.
+  case automatic
+  /// Always present, so the window never changes height.
+  case always
+  /// Never present. The Board and Teleport still work.
+  case hidden
+}
+
 public enum BoardPresentation: String, Codable, Hashable, Sendable, CaseIterable {
   case compact
   case comfortable
@@ -51,6 +66,7 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
   public var fontSize: Double
   public var theme: String
   public var cursorShape: CursorShape
+  public var attentionBar: AttentionBarVisibility
   public var cursorBlink: Bool
   public var scrollbackCapacity: Int
   /// Draw bold text in the bright half of the palette.
@@ -67,6 +83,7 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     fontSize: Double = 13,
     theme: String = ThemeCatalog.darkDefault.name,
     cursorShape: CursorShape = .block,
+    attentionBar: AttentionBarVisibility = .automatic,
     cursorBlink: Bool = false,
     scrollbackCapacity: Int = 100_000,
     boldIsBright: Bool = false,
@@ -78,6 +95,7 @@ public struct TerminalConfiguration: Codable, Hashable, Sendable {
     self.fontSize = fontSize
     self.theme = theme
     self.cursorShape = cursorShape
+    self.attentionBar = attentionBar
     self.cursorBlink = cursorBlink
     self.scrollbackCapacity = scrollbackCapacity
     self.boldIsBright = boldIsBright
@@ -363,6 +381,9 @@ public struct Configuration: Hashable, Sendable {
       theme: try string(terminalTable["theme"], key: "terminal.theme", default: ThemeCatalog.darkDefault.name),
       cursorShape: try enumValue(
         terminalTable["cursor-shape"], key: "terminal.cursor-shape", default: CursorShape.block),
+      attentionBar: try enumValue(
+        terminalTable["attention-bar"], key: "terminal.attention-bar",
+        default: AttentionBarVisibility.automatic),
       cursorBlink: try boolean(terminalTable["cursor-blink"], key: "terminal.cursor-blink", default: false),
       scrollbackCapacity: try integer(
         terminalTable["scrollback-capacity"], key: "terminal.scrollback-capacity", default: 100_000),
@@ -471,6 +492,7 @@ public struct Configuration: Hashable, Sendable {
         "font-size": .float(terminal.fontSize),
         "theme": .string(terminal.theme),
         "cursor-shape": .string(terminal.cursorShape.rawValue),
+        "attention-bar": .string(terminal.attentionBar.rawValue),
         "cursor-blink": .boolean(terminal.cursorBlink),
         "scrollback-capacity": .integer(Int64(terminal.scrollbackCapacity)),
         "bold-is-bright": .boolean(terminal.boldIsBright),

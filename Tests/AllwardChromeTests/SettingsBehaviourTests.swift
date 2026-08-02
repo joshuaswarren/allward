@@ -170,6 +170,8 @@ final class SettingsBehaviourTests: XCTestCase {
         case "terminal.cursor-blink": .toggle(true)
         case "terminal.scrollback-capacity":
             .number(value: 5000, range: 1...10_000_000, step: 1000)
+        case "attention.bar":
+            .choice(selectedID: AttentionBarVisibility.always.rawValue, choices: [])
         case "board.presentation":
             .choice(selectedID: BoardPresentation.allCases[0].rawValue, choices: [])
         case "earcons.enabled": .toggle(false)

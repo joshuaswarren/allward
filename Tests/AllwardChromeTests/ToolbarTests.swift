@@ -1,3 +1,4 @@
+import AllwardConfig
 import AppKit
 import XCTest
 
@@ -95,6 +96,30 @@ final class ToolbarTests: XCTestCase {
             "A refusal with nowhere to appear is the same as no refusal at all.")
         XCTAssertTrue(
             RouterStripView.isVisible(actionableCount: 2, hasItems: true, message: nil))
+    }
+
+    /// The bar arrived unannounced and could not be dismissed.
+    ///
+    /// It appears on its own the moment an adapter starts reporting sessions,
+    /// which is right by default but was the only behaviour available. Whether
+    /// a permanent band belongs at the bottom of your window is your call.
+    @MainActor
+    func testTheAttentionBarHonoursThePreference() {
+        XCTAssertFalse(
+            RouterStripView.isVisible(
+                actionableCount: 5, hasItems: true, message: "something",
+                preference: .hidden),
+            "Never means never, even with work waiting.")
+        XCTAssertTrue(
+            RouterStripView.isVisible(
+                actionableCount: 0, hasItems: false, message: nil, preference: .always),
+            "Always means the window does not change height under you.")
+        XCTAssertFalse(
+            RouterStripView.isVisible(
+                actionableCount: 0, hasItems: false, message: nil, preference: .automatic))
+        XCTAssertTrue(
+            RouterStripView.isVisible(
+                actionableCount: 2, hasItems: true, message: nil, preference: .automatic))
     }
 
     @MainActor

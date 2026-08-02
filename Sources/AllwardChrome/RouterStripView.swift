@@ -1,3 +1,4 @@
+import AllwardConfig
 import AllwardCore
 import AllwardDesign
 import AllwardSurfaces
@@ -33,9 +34,14 @@ public struct RouterStripView: View {
     /// exception: it is the only place the application can answer for an
     /// action, and it clears itself.
     public static func isVisible(
-        actionableCount: Int, hasItems: Bool, message: String?
+        actionableCount: Int, hasItems: Bool, message: String?,
+        preference: AttentionBarVisibility = .automatic
     ) -> Bool {
-        actionableCount > 0 || hasItems || message != nil
+        switch preference {
+        case .hidden: false
+        case .always: true
+        case .automatic: actionableCount > 0 || hasItems || message != nil
+        }
     }
 
     public var body: some View {

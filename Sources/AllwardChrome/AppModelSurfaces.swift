@@ -548,6 +548,9 @@ extension AppModel {
             configuration.terminal.cursorBlink = value
         case ("terminal.scrollback-capacity", let .number(value, _, _)):
             configuration.terminal.scrollbackCapacity = Int(value)
+        case ("attention.bar", let .choice(selectedID, _)):
+            guard let visibility = AttentionBarVisibility(rawValue: selectedID) else { return false }
+            configuration.terminal.attentionBar = visibility
         case ("board.presentation", let .choice(selectedID, _)):
             guard let style = BoardPresentation(rawValue: selectedID) else { return false }
             configuration.boardPresentation = style
@@ -609,7 +612,8 @@ private func projectSurfaceSnapshot(
     if let routerState = model.routerState,
         RouterStripView.isVisible(
             actionableCount: routerState.actionableCount,
-            hasItems: !routerState.items.isEmpty, message: message)
+            hasItems: !routerState.items.isEmpty, message: message,
+            preference: model.configuration.terminal.attentionBar)
     {
         targetWindow?.setRouterStrip(
             RouterStripView(

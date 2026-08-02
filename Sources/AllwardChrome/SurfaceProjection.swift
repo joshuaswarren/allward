@@ -609,6 +609,18 @@ public enum SurfaceProjection {
     private static func appearanceSettings(_ configuration: Configuration) -> [GeneralSetting] {
         [
             GeneralSetting(
+                id: "attention.bar", label: "Attention bar",
+                detail: "The strip along the bottom: how many sessions need you, "
+                    + "and what the last action had to say.",
+                value: .choice(
+                    selectedID: configuration.terminal.attentionBar.rawValue,
+                    choices: [
+                        SettingChoice(id: "automatic", label: "When something needs you"),
+                        SettingChoice(id: "always", label: "Always"),
+                        SettingChoice(id: "hidden", label: "Never"),
+                    ]),
+                isEnabled: true),
+            GeneralSetting(
                 id: "board.presentation", label: "Board density",
                 detail: "How much each session shows on the Board.",
                 value: .choice(
