@@ -110,29 +110,108 @@ Read from source, 2026-08-02. Relevant to **D-A**.
 - Declares `swift-nio`, `swift-crypto`, `swift-atomics`. Transitive licence and
   C-shim status is **not** audited; do not claim all-Apache without checking.
 
-### How much the RSA gap actually costs
+### What the RSA gap actually costs: measured, and it is disqualifying
 
-Measured against a stock macOS 26.5.2 `sshd`, the offered host key algorithms
-are `ssh-ed25519`, `ecdsa-sha2-nistp256`, and `ssh-rsa`. Because a server
-advertises several and the client negotiates, `swift-nio-ssh` connects to that
-server: it picks Ed25519.
+The first pass of this page judged the gap "real and narrow" by looking only at
+**host** keys. That was the wrong measurement. A stock macOS 26.5.2 `sshd` offers
+`ssh-ed25519`, `ecdsa-sha2-nistp256`, and `ssh-rsa`, and because the client
+negotiates, `swift-nio-ssh` connects to it happily by picking Ed25519. On host
+keys alone the gap looks survivable.
 
-The gap bites only where a server offers **no** Ed25519 or ECDSA host key. That
-is older appliances, embedded devices, and long-lived legacy hosts, not a modern
-OpenSSH. It also means a host previously pinned by its RSA key would be
-re-pinned under a different algorithm, and MAS cannot read the old pin anyway.
+**User** keys are the ones that decide it. Measured on a working developer
+machine, 2026-08-02, counting private keys by algorithm:
 
-The gap is real and narrow. It is a product-compatibility question, which is why
-it belongs to the owner rather than to whoever is writing phase 2.
+```text
+16  RSA
+ 2  ED25519
+```
 
-### Candidate notes
+Several of the RSA keys are cloud-provider `.pem` keys whose public half is
+already installed on instances the operator does not re-key at will. Since
+`NIOSSHPrivateKey` accepts only Ed25519, ECDSA P-256/P-384/P-521, and Secure
+Enclave P-256, `swift-nio-ssh` **cannot authenticate with 16 of those 18 keys**.
 
-- **libssh** is LGPL-2.1. That creates App Store distribution obligations that
-  need legal review before it is even a candidate.
-- **libssh2** is licence-clean and algorithm-complete, but it is C with no
-  maintained Swift binding, so Allward would own the bridge. C vendoring is not
-  a new precedent here: `CAllwardPTY` already exists. Its last release was
-  October 2024 while its repository stays active.
-- **Citadel** is MIT and Swift-facing, but its manifest depends on a *fork* of
-  `swift-nio-ssh` pinned to 0.3.x while upstream is 0.15.0, and it carries its
-  own C bcrypt target. That is a supply-chain risk, not a shortcut.
+That is not a narrow compatibility footnote. It is most of a real inventory, and
+it disqualifies the library for this product unless someone forks it to add both
+RSA and a signer abstraction.
+
+### The requirement this exposes: never hold the private key
+
+If keys live in Keychain, and better still in the Secure Enclave, then the SSH
+library must be able to ask the application for a signature instead of owning key
+bytes. That reframes D-A: the question is not only "which library speaks RSA" but
+"which library lets Security.framework do the signing".
+
+| Library | RSA | External signer | Evidence |
+|---|---|---|---|
+| libssh2 | yes | **yes** | `libssh2_userauth_publickey(..., sign_callback, abstract)` in `include/libssh2.h` 684-690; called at `src/userauth.c` 1583 |
+| russh | yes | **yes** | `Signer.auth_sign` in `russh/src/auth.rs` 136-149, used by `authenticate_publickey_with` |
+| Go `x/crypto/ssh` | yes | **yes** | `NewSignerFromSigner(crypto.Signer)` in `ssh/keys.go` 1203-1210, documented "for keys kept in hardware modules" |
+| `swift-nio-ssh` | **no** | **no** | `NIOSSHPrivateKey` has an internal backing enum and a private init, `NIOSSHPrivateKey.swift` 20-42, 72-99 |
+
+libssh2's callback hands back the *complete* SSH signature blob, not raw RSA
+bytes: `src/userauth.c` 1647-1651 wraps it with `ssh2_store_str`. So the
+application performs RSASSA-PKCS1-v1_5 with SHA-256 or SHA-512 per RFC 8332 and
+encodes the negotiated algorithm name itself. The callback receives no hash or
+padding argument, so our side must track the negotiated method.
+
+### Ranked candidates
+
+| | Licence | RSA | External signer | Latest release | Crypto backend | Swift burden |
+|---|---|---|---|---|---|---|
+| **russh** | Apache-2.0 | yes | yes | **v0.62.5, 2026-07-31** | self-contained (`aws-lc-rs` or `ring`) | Rust toolchain plus an FFI bridge |
+| **libssh2** | BSD-3-Clause | yes | yes | 1.11.1, 2024-10-16 | **none native**: OpenSSL, wolfSSL, Libgcrypt or mbedTLS | C bridge plus a vendored crypto library |
+| Go `x/crypto/ssh` | BSD-3-Clause | yes | yes, cleanest | tracks Go | Go standard library | embed the Go runtime; `c-archive` on darwin/arm64 UNVERIFIED |
+| `swift-nio-ssh` | Apache-2.0 | **no** | **no** | 0.15.0, 2026-07-28 | `swift-crypto` | none, and it cannot do the job |
+| libssh | **LGPL-2.1** | yes | — | — | — | legal review before it is a candidate |
+| Citadel | MIT | no | no | — | — | depends on a *fork* of `swift-nio-ssh` at 0.3.x |
+
+Two facts reorder this table against first impressions.
+
+**russh is the actively maintained one.** Apache-2.0 in its `Cargo.toml`, v0.62.5
+published 2026-07-31, latest commit the same day, and over a hundred commits in
+the last twelve months. Compare `swift-nio-ssh`: one commit in the same period.
+The Swift-native option is the dormant one.
+
+**libssh2 carries two vendoring burdens, not one.** Its CMake `CRYPTO_BACKEND`
+offers Libgcrypt, mbedTLS, OpenSSL, wolfSSL, or Windows-only WinCNG. There is no
+Apple-native backend, so choosing libssh2 means vendoring a C SSH library *and* a
+C crypto library into a sandboxed App Store binary. russh's crypto travels with
+it.
+
+## Keychain, iCloud, and the Secure Enclave
+
+Relevant to **D-B**. From Apple's documentation.
+
+**An SSH private key in the Keychain can sync over iCloud.** The
+`kSecAttrSynchronizable` page states: "Starting in iOS 14, macOS 11, and watchOS
+7, the keychain synchronizes passwords, certificates, and cryptographic keys."
+`kSecClassKey` is in scope, so this is documented rather than hopeful. Ordinary
+Keychain Services calls suffice; no iCloud entitlement is named. Sharing between
+apps would need `kSecAttrAccessGroup` and the `keychain-access-groups`
+entitlement, which Allward does not need.
+
+Synchronizable items give up three things: no `kSecAttrAccessible` value whose
+name ends in `ThisDeviceOnly`, no `SecAccess`-based access control, and no
+persistent references.
+
+**iCloud sync and the Secure Enclave are mutually exclusive.** Apple's Secure
+Enclave page is explicit: it "can't encode preexisting keys. You must use the
+Secure Enclave to create the keys", and "not having a mechanism to transfer
+plain-text key data into or out of the Secure Enclave is fundamental to its
+security". Only the creating enclave can use the key. A key that cannot leave one
+chip cannot appear on another.
+
+That resolves the preference between them, and it is stronger than a preference:
+
+- The enclave **cannot hold any existing key**. Not the 16 RSA keys, not the 2
+  Ed25519 ones. It creates its own keys and accepts no imports, and it does
+  NIST P-256 only.
+- So the enclave is not a later upgrade path for the keys anyone already has. It
+  applies solely to a newly generated P-256 key, whose public half would then
+  have to be installed on every host, and which could never sync.
+
+Keychain items marked synchronizable are therefore the only option that works
+with the keys that actually exist. The enclave remains worth offering for a
+freshly generated key on a single machine, and it must be presented as a distinct
+choice rather than as an improvement, because choosing it forfeits sync.

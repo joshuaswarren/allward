@@ -55,3 +55,12 @@ Status: accepted product and architecture decisions. The canonical behavior live
 - Repository and protocol vocabulary use Allward without compatibility aliases.
 - Swift modules use the `Allward` prefix.
 - Naming research screened current developer tools, package registries, public repositories, the Mac App Store, and obvious domains before the maintainer accepted the name.
+
+## Settled (2026-08-02)
+
+| # | Decision | Call |
+|---|---|---|
+| 39 | MAS credential store (D-B) | **Keychain items marked `kSecAttrSynchronizable`, so keys sync over iCloud.** ssh-agent is measurably unreachable under App Sandbox and `~/.ssh` is unreadable, so MAS holds its own keys; Apple documents keychain sync of cryptographic keys from macOS 11. The Secure Enclave is a distinct alternative for a newly generated P-256 key, never an upgrade path: it cannot import a preexisting key, so none of the keys a user already holds can go into it, and choosing it forfeits sync. The SSH library MUST accept an external signer so private keys stay inside Security.framework. Evidence: [evidence/SANDBOX.md](evidence/SANDBOX.md). |
+
+**Still open.** D-A, the SSH library, is narrowed to `russh` against `libssh2`;
+`swift-nio-ssh` is disqualified for having no RSA and no external-signer seam.

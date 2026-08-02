@@ -150,27 +150,48 @@ adopting one is a new decision. Writing an implementation instead would combine
 the R-01 risk (*from-scratch engine consumes the project*) with a cryptographic
 attack surface, so the plan assumes a library.
 
-`swift-nio-ssh` is the candidate and it is weaker than this plan assumed. It is
-0.15.0 and pre-1.0; its README says it "does not ship production-ready SSH
-clients and servers, but instead provides the building blocks"; it has had one
-commit in twelve months; and it cannot represent an `ssh-rsa` **host** key at
-all. Against a stock macOS `sshd` that costs nothing, because the server also
-offers Ed25519 and the client negotiates. It costs a connection only where a
-server offers no Ed25519 or ECDSA host key. It does support Secure Enclave P-256
-private keys, which bears on D-B. The alternative worth ranking against it is
-libssh2: licence-clean and algorithm-complete, but C, with no maintained Swift
-binding, so we would own the bridge. libssh is LGPL-2.1 and needs legal review
-before it is even a candidate. Blocks phase 2.
+`swift-nio-ssh` is **disqualified**, and not on taste. It cannot represent an RSA
+key at all, for host keys or user keys, and it exposes no way to inject an
+external signer: `NIOSSHPrivateKey` has a closed internal backing enum and a
+private initialiser. A measured key inventory is 16 RSA private keys to 2
+Ed25519, several of them cloud-provider keys whose public half cannot be swapped
+at will, so the library cannot authenticate with most of the keys that exist. It
+is also pre-1.0 with one commit in twelve months, and its README says it "does
+not ship production-ready SSH clients and servers, but instead provides the
+building blocks".
 
-**D-B - the MAS credential route.** Mostly settled by measurement. ssh-agent is
-**unreachable** under App Sandbox, so "no agent" is a fact, not a choice.
-`~/.ssh/config` and `~/.ssh/known_hosts` are unreadable, so hosts come from
-Allward's own configuration and prior pinning is invisible. What is still open is
-one thing: Keychain returned `errSecInteractionNotAllowed` under an ad-hoc
-signature, so key-import-to-Keychain is unproven until it is tried with a real
-signing identity. Secure Enclave keys are the alternative worth weighing, since a
-key that cannot be exported beats a key that can. Both products MUST keep
-identical trust and cancellation semantics. Blocks phase 5.
+The choice is now **russh** against **libssh2**. Both do RSA and both accept an
+external signer, which matters because D-B keeps private keys in Keychain: the
+library should ask us for a signature rather than hold key bytes. russh is
+Apache-2.0, released v0.62.5 on 2026-07-31, and carries its own crypto; the cost
+is a Rust toolchain and an FFI bridge. libssh2 is BSD-3-Clause and mature, but it
+has no Apple-native crypto backend, so it means vendoring a C SSH library *and* a
+C crypto library. libssh is LGPL-2.1 and needs legal review before it is a
+candidate. Full ranking in [evidence/SANDBOX.md](evidence/SANDBOX.md).
+Blocks phase 2.
+
+**D-B - the MAS credential route. Decided: Keychain, synchronising over iCloud.**
+ssh-agent is measurably unreachable under App Sandbox, so "no agent" was never a
+choice. `~/.ssh/config` and `~/.ssh/known_hosts` are unreadable, so hosts come
+from Allward's own configuration and prior pinning is invisible.
+
+Keys are Keychain items marked `kSecAttrSynchronizable`. Apple documents that the
+keychain synchronises cryptographic keys, not only passwords, from macOS 11
+onward, so this is a supported route. It costs the `ThisDeviceOnly` protection
+classes, `SecAccess`-based access control, and persistent references.
+
+The Secure Enclave is **not** a later upgrade for these keys. It cannot encode a
+preexisting key, it accepts no plaintext key import by design, and it does NIST
+P-256 only, so none of the keys anyone already holds can go into it. It is a
+distinct choice for a newly generated key on one machine, and taking it forfeits
+iCloud sync entirely, because a key that cannot leave one enclave cannot appear on
+another device. Offer it as an alternative, never as an improvement.
+
+One measurement is still outstanding: Keychain returned
+`errSecInteractionNotAllowed` under an ad-hoc signature, so the store is unproven
+until `fixtures/mas-sandbox-probe/run.sh` runs with a real signing identity and an
+unlocked keychain. Both products MUST keep identical trust and cancellation
+semantics. Blocks phase 5.
 
 ## 6. Phases
 
