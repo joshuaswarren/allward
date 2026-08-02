@@ -12,4 +12,7 @@
 - A typed herdr host also needs a HostConfiguration because Room.connectedToHerdr claims the host alias and configuration validation requires it to be configured.
 
 ## Domain Notes
-- Allward is built on macOS; this Linux checkout is source-only for this task, and Swift commands are prohibited.
+- Allward is built on macOS; this Linux checkout is source-only. Build and test
+  through `scripts/sync-to-mac.sh` and run Swift on the build host, never here.
+  (An earlier note said Swift was "prohibited" - that was one subagent's
+  instruction while the orchestrator owned the shared build dir, not a repo rule.)
