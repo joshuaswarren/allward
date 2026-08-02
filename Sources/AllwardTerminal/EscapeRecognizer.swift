@@ -11,6 +11,14 @@ public struct EscapeRecognizer: Sendable {
         case dcsString, dcsEscape, ignoredString, ignoredEscape
     }
 
+    /// Whether a run of plain bytes can be taken straight to the grid.
+    ///
+    /// Printing went one byte at a time through a closure, allocating a String
+    /// per character and boxing an operation around it. Between escape
+    /// sequences almost every byte is ordinary text, and the whole run can be
+    /// written in one pass instead.
+    var acceptsPlainRun: Bool { state == .ground && !decoder.hasPendingSequence }
+
     private var state: State = .ground
     private var decoder = UTF8Decoder()
     private var parameters: [Int?] = []
@@ -170,9 +178,20 @@ public struct EscapeRecognizer: Sendable {
 
     private mutating func consumeString(_ byte: UInt8, escapeState: State, emit: (TerminalOperation) -> Void) {
         if state == .oscString && byte == 0x07 {
+            lastStringTerminator = .bell
             emitOSC(emit: emit); resetSequence(); state = .ground; return
         }
         if byte == 0x1B { state = escapeState; return }
+        // A control character that cannot appear in a string means the program
+        // never finished the sequence. Swallowing everything after it loses the
+        // rest of the output, so the sequence is abandoned and the byte is
+        // handled as what it is - a newline stays a newline.
+        if byte < 0x20, byte != 0x08, byte != 0x09 {
+            resetSequence()
+            state = .ground
+            if let control = C0Control(rawValue: byte) { emit(.control(control)) }
+            return
+        }
         guard payload.count < Self.maximumStringPayload else {
             resetSequence()
             state = state == .oscString ? .oscIgnore : .ignoredString
@@ -183,7 +202,10 @@ public struct EscapeRecognizer: Sendable {
 
     private mutating func consumeStringEscape(_ byte: UInt8, stringState: State, emit: (TerminalOperation) -> Void) {
         if byte == 0x5C {
-            if stringState == .oscString { emitOSC(emit: emit) }
+            if stringState == .oscString {
+                lastStringTerminator = .stringTerminator
+                emitOSC(emit: emit)
+            }
             resetSequence(); state = .ground; return
         }
         guard payload.count + 2 <= Self.maximumStringPayload else {
@@ -391,6 +413,9 @@ public struct EscapeRecognizer: Sendable {
         return (.rgb(UInt8(values[index + 2]), UInt8(values[index + 3]), UInt8(values[index + 4])), 4)
     }
 
+    /// How the OSC now being dispatched was ended, so a reply can match it.
+    private(set) var lastStringTerminator: StringTerminator = .stringTerminator
+
     private mutating func emitOSC(emit: (TerminalOperation) -> Void) {
         let fields = String(decoding: payload, as: UTF8.self)
             .split(separator: ";", omittingEmptySubsequences: false).map(String.init)
@@ -412,13 +437,44 @@ public struct EscapeRecognizer: Sendable {
             emit(.commandMarker(OSCCommandMarker(phase: phase, parameters: metadata)))
         case 4:
             var index = 1
-            while index + 1 < fields.count {
-                if let paletteIndex = UInt8(fields[index]) {
-                    emit(.setPalette(index: paletteIndex, value: fields[index + 1]))
-                }
+            while index < fields.count {
+                guard let paletteIndex = UInt8(fields[index]) else { break }
+                guard index + 1 < fields.count else { break }
+                let value = fields[index + 1]
+                if value == "?" { emit(.reportPaletteColor(index: paletteIndex, terminator: lastStringTerminator)) }
+                else { emit(.setPalette(index: paletteIndex, value: value)) }
                 index += 2
             }
-        case 10, 11: emit(.setDynamicColor(slot: command, value: fields.dropFirst().joined(separator: ";")))
+        case 104:
+            if fields.count > 1, !fields[1].isEmpty {
+                for field in fields.dropFirst() {
+                    if let paletteIndex = UInt8(field) { emit(.resetPalette(index: paletteIndex)) }
+                }
+            } else {
+                emit(.resetPalette(index: nil))
+            }
+        case 10, 11, 12:
+            // A `?` here is a question, not a colour. Treating it as a value
+            // left the asker with no answer at all.
+            let value = fields.dropFirst().joined(separator: ";")
+            if value == "?" {
+                emit(.reportDynamicColor(slot: command, terminator: lastStringTerminator))
+            }
+            else if !value.isEmpty { emit(.setDynamicColor(slot: command, value: value)) }
+        case 110, 111, 112:
+            emit(.resetDynamicColor(slot: command - 100))
+        case 52:
+            guard fields.count > 2 else { return }
+            let payload = fields.dropFirst(2).joined(separator: ";")
+            emit(.clipboard(selection: fields[1], base64: payload == "?" ? nil : payload))
+        case 9:
+            emit(.notification(title: "", body: fields.dropFirst().joined(separator: ";")))
+        case 777:
+            // rxvt's form: `777;notify;title;body`.
+            guard fields.count > 2, fields[1] == "notify" else { return }
+            emit(
+                .notification(
+                    title: fields[2], body: fields.dropFirst(3).joined(separator: ";")))
         default: break
         }
     }

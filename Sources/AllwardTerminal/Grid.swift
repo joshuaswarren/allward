@@ -195,6 +195,46 @@ struct Grid: Sendable {
         else { screen.cursor.row = max(0, screen.cursor.row - 1) }
     }
 
+    /// Writes a run of single-width graphemes in one pass.
+    ///
+    /// The per-character path moved the screen storage out and back for every
+    /// letter, and every letter arrived wrapped in a String inside an enum
+    /// through a closure. Ordinary text is the overwhelming majority of what a
+    /// terminal ever receives, so it is written as a run: the storage moves
+    /// once, and the inner loop only touches cells.
+    mutating func printRun(
+        graphemes: [UInt32],
+        attributes: UInt32,
+        protected: Bool,
+        autoWrap: Bool
+    ) -> [GridLine] {
+        var screen = takeActive()
+        defer { putActive(screen) }
+        var scrolled: [GridLine] = []
+        for grapheme in graphemes {
+            if screen.cursor.wrapPending {
+                if autoWrap { scrolled += wrap(&screen) }
+                else { screen.cursor.wrapPending = false }
+            }
+            clearWideCell(at: screen.cursor.row, column: screen.cursor.column, screen: &screen)
+            let lead = offset(row: screen.cursor.row, column: screen.cursor.column)
+            screen.cells[lead] = PackedTerminalCell(
+                grapheme: grapheme,
+                attributes: attributes,
+                span: .narrow,
+                isProtected: protected
+            )
+            if screen.cursor.column + 1 >= geometry.columns {
+                screen.cursor.column = geometry.columns - 1
+                screen.cursor.wrapPending = autoWrap
+            } else {
+                screen.cursor.column += 1
+                screen.cursor.wrapPending = false
+            }
+        }
+        return scrolled
+    }
+
     /// Cursor motion, clamped before the addition rather than after.
     ///
     /// A CSI parameter is whatever the program sent, up to `Int.max`, and

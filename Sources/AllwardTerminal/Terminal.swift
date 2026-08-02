@@ -39,6 +39,16 @@ public final class Terminal {
         resetTabStops()
     }
 
+    /// The colours a program can ask about. The application keeps the defaults
+    /// in step with the theme so a query is answered with what is really on
+    /// screen, not a guess.
+    public var dynamicColors = DynamicColors()
+    private var paletteOverrides: [UInt8: DynamicColors.RGB] = [:]
+    /// Recorded for the application to act on, and for tests to assert.
+    public private(set) var clipboardWrites: [(selection: String, base64: String)] = []
+    public private(set) var clipboardReadsRefused = 0
+    public private(set) var notifications: [(title: String, body: String)] = []
+
     public var pendingResponses: [UInt8] {
         let responses = responseBuffer
         responseBuffer.removeAll(keepingCapacity: true)
@@ -52,12 +62,23 @@ public final class Terminal {
         let consumeStart = DispatchTime.now().uptimeNanoseconds
         defer { Perf.consumeNanos &+= DispatchTime.now().uptimeNanoseconds &- consumeStart }
         var changed = false
-        for byte in bytes {
-            recognizer.consume(byte) { [self] operation in
+        var index = bytes.startIndex
+        while index < bytes.endIndex {
+            // Ordinary text is nearly all of what arrives. Take it in runs.
+            if recognizer.acceptsPlainRun, bytes[index] >= 0x20, bytes[index] < 0x7F {
+                var end = index
+                while end < bytes.endIndex, bytes[end] >= 0x20, bytes[end] < 0x7F { end += 1 }
+                printPlainRun(bytes[index ..< end])
+                changed = true
+                index = end
+                continue
+            }
+            recognizer.consume(bytes[index]) { [self] operation in
                 Perf.opCalls += 1
                 apply(operation)
                 changed = true
             }
+            index += 1
         }
         if changed { publishGeneration() }
     }
@@ -297,8 +318,40 @@ public final class Terminal {
         case .setWorkingDirectory(let value): commandReducer.setWorkingDirectory(value)
         case .setHyperlink(let parameters, let uri): setHyperlink(parameters: parameters, uri: uri)
         case .commandMarker(let marker): commandReducer.apply(marker, line: currentLineID)
-        case .setPalette(let index, let value): palette[index] = value; damage.fullRedraw = true
-        case .setDynamicColor: damage.fullRedraw = true
+        case .setPalette(let index, let value):
+            palette[index] = value
+            if let color = DynamicColors.RGB.parse(value) { paletteOverrides[index] = color }
+            damage.fullRedraw = true
+        case let .setDynamicColor(slot, value):
+            if let slot = DynamicColors.Slot(rawValue: slot),
+                let color = DynamicColors.RGB.parse(value)
+            {
+                dynamicColors.set(slot, to: color)
+            }
+            damage.fullRedraw = true
+        case let .resetDynamicColor(slot):
+            if let slot = DynamicColors.Slot(rawValue: slot) { dynamicColors.reset(slot) }
+            damage.fullRedraw = true
+        case let .reportDynamicColor(slot, terminator):
+            guard let slot = DynamicColors.Slot(rawValue: slot) else { break }
+            responseBuffer += dynamicColors.reply(for: slot, terminator: terminator)
+        case let .reportPaletteColor(index, terminator):
+            let color = paletteOverrides[index] ?? DynamicColors.RGB(0, 0, 0)
+            responseBuffer += Array(
+                ("\u{1B}]4;\(index);" + color.xtermDescription + terminator.text).utf8)
+        case let .resetPalette(index):
+            if let index { paletteOverrides.removeValue(forKey: index) }
+            else { paletteOverrides.removeAll() }
+            damage.fullRedraw = true
+        case let .clipboard(selection, base64):
+            // Writing is ordinary. Reading is not: a program that can read the
+            // clipboard unprompted can read whatever the user last copied, so
+            // the request is recorded and refused, as every serious terminal
+            // refuses it by default.
+            if let base64 { clipboardWrites.append((selection, base64)) }
+            else { clipboardReadsRefused += 1 }
+        case let .notification(title, body):
+            notifications.append((title, body))
         case .respond(let bytes): responseBuffer += bytes
         case .reset: reset()
         case .reportCursorPosition(let privateMode):
@@ -321,6 +374,28 @@ public final class Terminal {
         }
         damage.cursorMoved = damage.cursorMoved || initialRow != grid.cursor.row
         markRow(grid.cursor.row)
+    }
+
+    /// Writes a run of printable ASCII without going through the parser.
+    ///
+    /// Printable ASCII is always width 1, never combines and never attaches, so
+    /// none of the cluster machinery can change the answer. Taking it as a run
+    /// removes a String allocation, an enum box and a closure call per byte.
+    private func printPlainRun(_ bytes: ArraySlice<UInt8>) {
+        Perf.opCalls += bytes.count
+        var references = [UInt32]()
+        references.reserveCapacity(bytes.count)
+        for byte in bytes { references.append(graphemes.internASCII(byte)) }
+        let current = grid.currentAttributes
+        let scrolled = grid.printRun(
+            graphemes: references,
+            attributes: attributes.intern(current),
+            protected: current.flags.contains(.protected),
+            autoWrap: modes.autoWrap
+        )
+        appendScrollback(scrolled)
+        commandReducer.appendCommandInput(String(decoding: bytes, as: UTF8.self))
+        markRegion()
     }
 
     /// Printing one plain character used to cost about 7.7 microseconds.

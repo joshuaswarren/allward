@@ -100,7 +100,16 @@ public enum TerminalOperation: Hashable, Sendable {
     case setHyperlink(parameters: String, uri: String?)
     case commandMarker(OSCCommandMarker)
     case setPalette(index: UInt8, value: String)
+    case resetPalette(index: UInt8?)
     case setDynamicColor(slot: Int, value: String)
+    case resetDynamicColor(slot: Int)
+    /// A program asking what colour is actually in effect. Without an answer a
+    /// TUI cannot tell a dark theme from a light one, and the usual fallback is
+    /// to assume light and paint dark text nobody can read on a dark grid.
+    case reportDynamicColor(slot: Int, terminator: StringTerminator)
+    case reportPaletteColor(index: UInt8, terminator: StringTerminator)
+    case clipboard(selection: String, base64: String?)
+    case notification(title: String, body: String)
     case respond([UInt8])
     case reset
     case reportCursorPosition(privateMode: Bool)

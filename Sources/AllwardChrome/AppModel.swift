@@ -156,7 +156,26 @@ public final class AppModel {
             view.palette = palette
             view.theme = theme
         }
+        publishThemeColorsToSessions()
         for controller in tabWindows.values { controller.paletteDidChange(palette) }
+    }
+
+    /// Keeps every engine's answer to a colour query in step with the theme.
+    private func publishThemeColorsToSessions() {
+        let foreground = Self.reportedColor(theme.defaultForeground)
+        let background = Self.reportedColor(theme.defaultBackground)
+        let cursor = Self.reportedColor(theme.cursor)
+        Task { [control] in
+            await control.setReportedColors(
+                foreground: foreground, background: background, cursor: cursor)
+        }
+    }
+
+    private static func reportedColor(_ color: TokenColor) -> DynamicColors.RGB {
+        DynamicColors.RGB(
+            UInt8(clamping: Int((color.red * 255).rounded())),
+            UInt8(clamping: Int((color.green * 255).rounded())),
+            UInt8(clamping: Int((color.blue * 255).rounded())))
     }
 
     public func setContentSize(_ size: ContentSizeCategory) {

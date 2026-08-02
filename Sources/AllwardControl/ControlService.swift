@@ -27,6 +27,17 @@ public actor ControlService {
     var commandReceipts: [IdempotencyKey: CommandExecutionReceipt] = [:]
     var commandReceiptOrder: [IdempotencyKey] = []
 
+    /// Publishes the theme's colours to every engine so `OSC 10/11/12` queries
+    /// are answered with what is actually on screen.
+    public func setReportedColors(
+        foreground: DynamicColors.RGB, background: DynamicColors.RGB, cursor: DynamicColors.RGB
+    ) async {
+        for session in await registry.allSessions {
+            await session.setReportedColors(
+                foreground: foreground, background: background, cursor: cursor)
+        }
+    }
+
     public init(
         transports: [any RemoteTransport],
         adapter: any MultiplexerAdapter = NoMultiplexerAdapter(),

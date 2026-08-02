@@ -52,6 +52,10 @@ actor PaneRegistry {
         var contentRoute: AdapterContentRoute?
     }
     private struct TabEntry { var tree: SplitTree?; var focusedPane: PaneID? }
+
+    /// Every live session, for state that has to reach all of them at once -
+    /// the theme colours a program can query, for instance.
+    var allSessions: [Session] { panes.values.map(\.session) }
     private struct WindowEntry {
         var room: RoomID
         var tabOrder: [TabID]

@@ -84,6 +84,18 @@ public actor Session {
 
     public func selectedText() -> String? { terminal.selectedText() }
 
+    /// Tells the engine what the theme actually paints, so `OSC 10/11/12`
+    /// queries are answered with the colours on screen rather than a default.
+    /// A TUI that cannot read the background assumes a light one and picks dark
+    /// text, which is invisible on a dark grid.
+    public func setReportedColors(
+        foreground: DynamicColors.RGB, background: DynamicColors.RGB, cursor: DynamicColors.RGB
+    ) {
+        terminal.dynamicColors.defaults = [
+            .foreground: foreground, .background: background, .cursor: cursor,
+        ]
+    }
+
     public func snapshot() -> TerminalSnapshot {
         terminal.snapshot()
     }

@@ -153,6 +153,28 @@ extension AppModel {
         return lines.joined(separator: "\n")
     }
 
+    /// The colour the grid actually holds for a given character.
+    ///
+    /// "It looks black-ish" is a colour report, not a glyph report, and no
+    /// amount of staring at glyph coverage will answer it. This prints the
+    /// attributes the engine recorded so the paint can be compared against
+    /// what the program asked for.
+    public func colorDump(matching characters: String) -> String {
+        guard let pane = focusedPane, let snapshot = paneView(for: pane)?.snapshot
+        else { return "no pane" }
+        let wanted = Set(characters)
+        var lines: [String] = []
+        for row in 0 ..< snapshot.geometry.rows {
+            for (column, cell) in snapshot.rows[row].enumerated() {
+                guard let character = cell.text.first, wanted.contains(character) else { continue }
+                lines.append(
+                    "r\(row)c\(column) '\(cell.text)' fg=\(cell.attributes.foreground) "
+                        + "bg=\(cell.attributes.background) flags=\(cell.attributes.flags)")
+            }
+        }
+        return lines.isEmpty ? "no matching cells" : lines.joined(separator: "\n")
+    }
+
     /// The grid each pane's terminal actually holds, and where its content
     /// starts, so a claim about prompt position is a measurement.
     public func gridReport() -> String {
