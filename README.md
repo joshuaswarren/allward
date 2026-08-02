@@ -164,6 +164,7 @@ swift test
 - [Testing](docs/TESTING.md)
 - [Apple platform and MCP evidence](docs/evidence/PLATFORM.md)
 - [herdr 0.7.5 evidence](docs/evidence/HERDR.md)
+- [Plan: sandboxed MAS product](docs/MAS-PLAN.md)
 
 The specs use `MUST`, `SHOULD`, and `MAY` as rule words. Open questions stay marked until a repeatable test closes them.
 
