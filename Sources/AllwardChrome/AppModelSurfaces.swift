@@ -619,11 +619,7 @@ private func projectSurfaceSnapshot(
             RouterStripView(
                 state: routerState,
                 message: message,
-                onOpenBoard: { [weak targetWindow] in targetWindow?.presentBoard() },
-                onOpenDestination: { [weak model] key in
-                    guard let model else { return }
-                    Task { await openRoutedDestination(key: key, model: model) }
-                }
+                onOpenBoard: { [weak targetWindow] in targetWindow?.presentBoard() }
             )
         )
     } else {

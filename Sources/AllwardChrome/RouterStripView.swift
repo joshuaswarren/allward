@@ -13,18 +13,15 @@ public struct RouterStripView: View {
     /// refuses and says nothing is indistinguishable from one that is broken.
     public let message: String?
     public let onOpenBoard: @MainActor () -> Void
-    public let onOpenDestination: @MainActor (String) -> Void
 
     public init(
         state: RouterViewState,
         message: String? = nil,
         onOpenBoard: @escaping @MainActor () -> Void = {},
-        onOpenDestination: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.message = message
         self.state = state
         self.onOpenBoard = onOpenBoard
-        self.onOpenDestination = onOpenDestination
     }
 
     /// Whether the strip belongs on screen.
@@ -44,17 +41,39 @@ public struct RouterStripView: View {
         }
     }
 
+    /// Context, then status, then the way out.
+    ///
+    /// This read `● 3 Personal 12m 1` - a mark, a bare number before any word
+    /// that says what it counts, the Room, a duration, and a loose digit - in
+    /// four different type tokens (`.uiData`, `.uiRoom`, `.uiCaption`,
+    /// `.uiLabel`) across twenty points of height. Now it answers three
+    /// questions in the order anyone asks them: where am I, what wants me, and
+    /// how do I get to it. Two tokens only: one you read, one that stays out of
+    /// the way.
     public var body: some View {
         HStack(spacing: SpaceToken.blockStandard.points) {
             RoomSeam(roomTint: state.roomTint)
+            Text(state.roomName)
+                .tokenFont(.uiLabel, palette)
+                .tokenForeground(.textPrimary, palette)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityLabel(state.roomName)
             stripContent
+            if let detail = secondaryDetail {
+                Text(detail)
+                    .tokenFont(.uiCaption, palette)
+                    .tokenForeground(.textSecondary, palette)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             Spacer(minLength: SpaceToken.inlineStandard.points)
             boardCommand
         }
         .padding(.horizontal, SpaceToken.blockStandard.points)
         .padding(.vertical, SpaceToken.blockCompact.points)
         .background(palette[palette.resolve(.chromeBase).baseColor].swiftUIColor)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .top) {
             Rectangle()
                 .fill(palette[.strokeDivider].swiftUIColor)
                 .frame(height: StrokeToken.paneDivider.width(palette.settings))
@@ -68,115 +87,60 @@ public struct RouterStripView: View {
     @ViewBuilder
     private var stripContent: some View {
         if let message {
-            HStack(spacing: SpaceToken.inlineStandard.points) {
-                let mark = StateMark.mark(for: .needsInput)
-                Label(message, systemImage: mark.symbolName)
-                    .tokenFont(.uiLabel, palette)
-                    .tokenForeground(mark.color, palette)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .accessibilityLabel(message)
+            Label(message, systemImage: StateMark.mark(for: .needsInput).symbolName)
+                .tokenFont(.uiLabel, palette)
+                .tokenForeground(StateMark.mark(for: .needsInput).color, palette)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityLabel(message)
         } else if state.presentation.state == .loading {
-            loadingContent
+            Label(
+                state.subject.boundedStep ?? "Looking for sessions",
+                systemImage: StateMark.mark(for: .loading).symbolName)
+                .tokenFont(.uiLabel, palette)
+                .tokenForeground(.textSecondary, palette)
+                .lineLimit(1)
         } else if state.zeroState != .none || state.actionableCount == 0 {
-            zeroContent
+            Label("Nothing needs you", systemImage: StateMark.mark(for: .empty).symbolName)
+                .tokenFont(.uiLabel, palette)
+                .tokenForeground(.textSecondary, palette)
         } else {
-            activeContent
+            attentionSummary
         }
     }
 
-    private var loadingContent: some View {
-        HStack(spacing: SpaceToken.inlineStandard.points) {
-            StateBadge(presentation: state.presentation, subject: state.subject)
-            Text(state.subject.target)
-                .tokenFont(.uiLabel, palette)
-                .tokenForeground(.textPrimary, palette)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .accessibilityLabel(state.subject.target)
-            Text(state.subject.boundedStep ?? "First-value attempt in progress")
-                .tokenFont(.uiData, palette)
-                .tokenForeground(.textSecondary, palette)
-        }
-    }
-
-    private var zeroContent: some View {
-        HStack(spacing: SpaceToken.inlineStandard.points) {
-            let mark = StateMark.mark(for: .empty)
-            Label("No actionable items", systemImage: mark.symbolName)
-                .tokenFont(.uiLabel, palette)
-                .tokenForeground(.textSecondary, palette)
-            Text(state.roomName)
-                .tokenFont(.uiRoom, palette)
-                .tokenForeground(.textPrimary, palette)
-        }
-    }
-
-    private var activeContent: some View {
-        HStack(spacing: SpaceToken.inlineStandard.points) {
-            pulseMark
-            Text("\(state.actionableCount)")
-                .tokenFont(.uiData, palette)
-                .tokenForeground(.textPrimary, palette)
-                .accessibilityLabel(countAccessibilityLabel)
-            Text(state.roomName)
-                .tokenFont(.uiRoom, palette)
-                .tokenForeground(.textPrimary, palette)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .accessibilityLabel(state.roomName)
-            if state.presentation.state == .degraded {
-                Text(degradedDetail)
-                    .tokenFont(.uiCaption, palette)
-                    .tokenForeground(.textSecondary, palette)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityLabel(degradedDetail)
-            }
-            FreshnessLabel(
-                age: state.freshnessAge,
-                presentation: state.presentation,
-                subject: state.subject)
-            if let destinationKey = state.destinationKey {
-                Button {
-                    onOpenDestination(destinationKey)
-                } label: {
-                    DestinationKeyCap(key: destinationKey, target: state.subject.target)
-                }
-                .buttonStyle(.plain)
-                .focusable(false)
-                .accessibilityValue(state.presentation.accessibilityValue(state.subject))
-            }
-            if state.focusFiltered {
-                Label("Filtered by Focus", systemImage: "line.3.horizontal.decrease.circle")
-                    .tokenFont(.uiCaption, palette)
-                    .tokenForeground(.textSecondary, palette)
-                    .help(
-                        "Only attention allowed by the current Focus policy is counted. "
-                            + "Open Board to inspect policy.")
-                    .accessibilityHint("Open Board to inspect the current Focus policy")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var pulseMark: some View {
-        let presentationState = attentionPresentationState
-        let mark = StateMark.mark(for: presentationState)
-        let label = Label(mark.label, systemImage: mark.symbolName)
+    /// A count is only useful beside the word for what it counts.
+    private var attentionSummary: some View {
+        let mark = StateMark.mark(for: attentionPresentationState)
+        let noun = state.actionableCount == 1 ? "session needs" : "sessions need"
+        let label = Label(
+            "\(state.actionableCount) \(noun) you", systemImage: mark.symbolName)
             .tokenFont(.uiLabel, palette)
             .tokenForeground(mark.color, palette)
-            .accessibilityLabel(mark.label)
-        if palette.settings.reduceMotion || state.highestClass == .stale || state.newEpochs.isEmpty {
-            label
-        } else {
-            label
-                .symbolEffect(.pulse, options: .nonRepeating, value: state.newEpochs.last)
-                .animation(
-                    .easeInOut(duration: MotionToken.routerPulse.duration(reduceMotion: false)),
-                    value: state.newEpochs.last)
+            .accessibilityLabel(countAccessibilityLabel)
+        return Group {
+            if palette.settings.reduceMotion || state.highestClass == .stale
+                || state.newEpochs.isEmpty
+            {
+                label
+            } else {
+                label
+                    .symbolEffect(.pulse, options: .nonRepeating, value: state.newEpochs.last)
+                    .animation(
+                        .easeInOut(duration: MotionToken.routerPulse.duration(reduceMotion: false)),
+                        value: state.newEpochs.last)
+            }
         }
+    }
+
+    /// Everything that qualifies the status, in one dim phrase rather than
+    /// three competing ones.
+    private var secondaryDetail: String? {
+        guard message == nil else { return nil }
+        var parts: [String] = []
+        if state.presentation.state == .degraded { parts.append(degradedDetail) }
+        if state.focusFiltered { parts.append("Focus is filtering") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var countAccessibilityLabel: String {
@@ -197,7 +161,8 @@ public struct RouterStripView: View {
                 Text("Board")
                     .tokenFont(.uiLabel, palette)
                 Text(Shortcut.board.display)
-                    .tokenFont(.uiData, palette)
+                    .tokenFont(.uiCaption, palette)
+                    .tokenForeground(.textSecondary, palette)
             }
         }
         .buttonStyle(.borderless)
