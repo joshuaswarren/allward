@@ -41,20 +41,26 @@ the four link-negative receipts against `scripts/mas-isolation.json`. All four
 fail on purpose. Run them before you argue about the MAS graph, because they
 report it.
 
-Phase 2 is blocked on **D-A**, so **phase 3 is the next work you can do**: move
-local PTY spawning, the process-table herdr discovery, the process herdr
-executor, and the AF_UNIX control socket host out of shared modules and behind
-injected protocols. Receipts 1 and 2 name every offending edge and line.
+**Both owner decisions are made**, so nothing is blocked. Decisions 39 and 40 in
+[docs/DECISIONS.md](docs/DECISIONS.md):
 
-Phase 3 cannot finish alone. It clears `AllwardLocalPublisherEndpoint`, the
-listener, and the process launcher, but `AllwardLocalPTY` stays reachable while
-`AllwardSSH` launches `/usr/bin/ssh`, and replacing that is phase 2. Expect
-receipt 1 to keep naming `AllwardLocalPTY` until D-A is ruled on.
+- **D-A** the SSH library is **`russh`**. Apache-2.0, RSA, and a `Signer` trait so
+  private keys stay inside Security.framework. First external dependency, and
+  first Rust. The seam is verified: it builds as a `staticlib` for
+  `aarch64-apple-darwin`, Swift calls it over a C ABI, and it adds no linked
+  library the MAS manifest does not already permit. Pin a **stable** toolchain.
+- **D-B** MAS credentials are **Keychain items marked `kSecAttrSynchronizable`**,
+  so keys sync over iCloud. The Secure Enclave cannot import an existing key and
+  forfeits sync, so it is an alternative for a fresh key, never an upgrade path.
 
-Two decisions belong to the owner and are not yours to make. Ask; do not choose.
+**Phase 3 is the best next work**, because it clears the most receipt findings and
+does not touch the new dependency: move local PTY spawning, the process-table
+herdr discovery, the process herdr executor, and the AF_UNIX control socket host
+out of shared modules and behind injected protocols. Receipts 1 and 2 name every
+offending edge and line. Phase 2 then replaces the transport itself, and
+`AllwardLocalPTY` stays reachable through `AllwardSSH` until it does.
 
-- **D-A** adopt an SSH library. Blocks phase 2.
-- **D-B** the MAS credential route. Blocks phase 5.
+Do not weaken a decision above to make a phase easier. Ask instead.
 
 ## Build and test
 

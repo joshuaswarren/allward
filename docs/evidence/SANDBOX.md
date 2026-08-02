@@ -215,3 +215,33 @@ Keychain items marked synchronizable are therefore the only option that works
 with the keys that actually exist. The enclave remains worth offering for a
 freshly generated key on a single machine, and it must be presented as a distinct
 choice rather than as an improvement, because choosing it forfeits sync.
+
+## russh integration, verified end to end
+
+Decision 40 chose `russh`. Before any transport code depends on it, the seam was
+built and run. Measured 2026-08-02 on macOS 26.5.2, Apple silicon:
+
+| Step | Result |
+|---|---|
+| `russh = "0.62"` as a `staticlib` for `aarch64-apple-darwin` | builds, 33 s cold, 30.7 MB archive |
+| Swift links the archive and calls it over the C ABI | works |
+| RSA algorithms recognised | **3 of 3**: `rsa-sha2-256`, `rsa-sha2-512`, `ssh-rsa` |
+| Stripped Swift binary | 4.5 MB |
+| Libraries the result links | 9, and **every one already permitted** by `scripts/mas-isolation.json` |
+
+The last row is the one that matters for MAS. The linked set is `libSystem`,
+`Foundation`, and seven Swift runtime dylibs, all covered by the manifest's
+existing `permitted_prefixes`. So adopting russh widens nothing: receipt 3 needs
+no new entry, and no OpenSSL or extra framework arrives with it. That is the
+concrete advantage over libssh2, which would have brought its own crypto library.
+
+Two constraints this exposes:
+
+- The machine's default toolchain is a nightly. `cargo +stable` was used, and the
+  build must pin a stable toolchain rather than inherit whatever is default.
+- `cbindgen` is not installed, and should not become a build dependency. The C ABI
+  is small and long-lived, so the header is written and reviewed by hand.
+
+The RSA count is the empirical answer to the question that disqualified
+`swift-nio-ssh`. The library that will hold the transport recognises every RSA
+algorithm the measured key inventory needs.

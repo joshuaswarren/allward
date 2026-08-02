@@ -134,41 +134,40 @@ Four properties define the target.
 - One in-process connection carrying many channels replaces the current full SSH
   handshake per herdr command.
 
-## 5. Decisions required before work starts
+## 5. Decisions, both now settled
 
-Two phases must not begin until the owner rules. Record each accepted decision in
-[DECISIONS.md](DECISIONS.md). Both were blocked on facts nobody had gathered;
-[evidence/SANDBOX.md](evidence/SANDBOX.md) now has them, so what remains is
-genuinely a judgement rather than a gap.
+Both were blocked on facts nobody had gathered.
+[evidence/SANDBOX.md](evidence/SANDBOX.md) gathered them, and the owner has ruled.
+Decisions 39 and 40 in [DECISIONS.md](DECISIONS.md) are the record. **No phase is
+blocked on a decision any more.**
 
-**D-A - adopt an SSH library.** MAS needs in-process SSH, though not for the
-reason first written here. App Sandbox **permits** launching `/usr/bin/ssh`; the
-child inherits the sandbox and then cannot read `~/.ssh/config`, `known_hosts`,
-or any key, so a spawned client is starved. This repository has no external
-package dependencies today and no decision records a policy either way, so
-adopting one is a new decision. Writing an implementation instead would combine
-the R-01 risk (*from-scratch engine consumes the project*) with a cryptographic
-attack surface, so the plan assumes a library.
+**D-A - SSH library. Decided: `russh`.** MAS needs in-process SSH, though not for
+the reason first written here. App Sandbox **permits** launching `/usr/bin/ssh`;
+the child inherits the sandbox and then cannot read `~/.ssh/config`,
+`known_hosts`, or any key, so a spawned client is starved. This is Allward's first
+external package dependency and its first non-C foreign language. Writing an SSH
+implementation instead would have combined the R-01 risk (*from-scratch engine
+consumes the project*) with a cryptographic attack surface.
 
-`swift-nio-ssh` is **disqualified**, and not on taste. It cannot represent an RSA
-key at all, for host keys or user keys, and it exposes no way to inject an
-external signer: `NIOSSHPrivateKey` has a closed internal backing enum and a
-private initialiser. A measured key inventory is 16 RSA private keys to 2
-Ed25519, several of them cloud-provider keys whose public half cannot be swapped
-at will, so the library cannot authenticate with most of the keys that exist. It
-is also pre-1.0 with one commit in twelve months, and its README says it "does
-not ship production-ready SSH clients and servers, but instead provides the
-building blocks".
+The seam is verified rather than assumed: `russh` 0.62.5 builds as a
+`staticlib` for `aarch64-apple-darwin`, Swift links and calls it over a C ABI, it
+recognises all three RSA algorithms, and the resulting binary links only libraries
+`scripts/mas-isolation.json` already permits. Adopting it widens the MAS manifest
+by nothing. The build must pin a **stable** Rust toolchain; the machine's default
+is a nightly.
 
-The choice is now **russh** against **libssh2**. Both do RSA and both accept an
-external signer, which matters because D-B keeps private keys in Keychain: the
-library should ask us for a signature rather than hold key bytes. russh is
-Apache-2.0, released v0.62.5 on 2026-07-31, and carries its own crypto; the cost
-is a Rust toolchain and an FFI bridge. libssh2 is BSD-3-Clause and mature, but it
-has no Apple-native crypto backend, so it means vendoring a C SSH library *and* a
-C crypto library. libssh is LGPL-2.1 and needs legal review before it is a
-candidate. Full ranking in [evidence/SANDBOX.md](evidence/SANDBOX.md).
-Blocks phase 2.
+Why not the others. `swift-nio-ssh` was **disqualified**, and not on taste: it
+cannot represent an RSA key at all, for host keys or user keys, and it exposes no
+way to inject an external signer, because `NIOSSHPrivateKey` has a closed internal
+backing enum and a private initialiser. A measured key inventory is 16 RSA private
+keys to 2 Ed25519, several of them cloud-provider keys whose public half cannot be
+swapped at will, so it could not authenticate with most of the keys that exist. It
+is also pre-1.0 with one commit in twelve months, and its README says it "does not
+ship production-ready SSH clients and servers, but instead provides the building
+blocks". `libssh2` was the runner-up and is licence-clean and mature, but it has
+no Apple-native crypto backend, so it would have meant vendoring a C SSH library
+*and* a C crypto library. `libssh` is LGPL-2.1. Full ranking in
+[evidence/SANDBOX.md](evidence/SANDBOX.md).
 
 **D-B - the MAS credential route. Decided: Keychain, synchronising over iCloud.**
 ssh-agent is measurably unreachable under App Sandbox, so "no agent" was never a
@@ -191,7 +190,7 @@ One measurement is still outstanding: Keychain returned
 `errSecInteractionNotAllowed` under an ad-hoc signature, so the store is unproven
 until `fixtures/mas-sandbox-probe/run.sh` runs with a real signing identity and an
 unlocked keychain. Both products MUST keep identical trust and cancellation
-semantics. Blocks phase 5.
+semantics.
 
 ## 6. Phases
 
@@ -223,7 +222,7 @@ meantime.
 - **Guards against:** shared code drifting further toward the Dev ID product
   while nothing checks.
 
-### Phase 2 - in-process SSH transport (blocked on D-A)
+### Phase 2 - in-process SSH transport
 
 Replace the process-launching SSH implementation behind the existing
 `RemoteTransport` facade, keeping `AllwardSSH` the only module that knows the
@@ -263,7 +262,7 @@ unchanged.
 - **Guards against:** the adapter quietly becoming Dev-ID-only, which the §15
   product matrix forbids.
 
-### Phase 5 - credentials and host trust (blocked on D-B)
+### Phase 5 - credentials and host trust
 
 Implement the injected credential and host-trust stores for both products and
 close OQ-14 with its probe fixtures: import, unlock, use, rotation, deletion,
