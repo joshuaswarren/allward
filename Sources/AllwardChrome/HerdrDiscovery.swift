@@ -14,21 +14,54 @@ import Foundation
 /// this machine. Configuration still wins when it is present, because naming a
 /// host in a Room is a deliberate statement.
 public enum HerdrDiscovery {
-    /// The host a running herdr client or server is attached to.
+    /// The host a herdr running *in one of our own panes* is attached to.
     public static func attachedHost() async -> HostAlias? {
         let table = await processTable()
-        return attachedHost(processTable: table)
+        return attachedHost(
+            processTable: table, rootPID: ProcessInfo.processInfo.processIdentifier)
     }
 
-    static func attachedHost(processTable: String) -> HostAlias? {
-        var localServer = false
+    /// Only herdr processes descended from this application count.
+    ///
+    /// Scanning the whole machine was wrong and shipped a real fault: a herdr
+    /// client left running in some other terminal was picked up by a freshly
+    /// launched Allward, which then listed that session's panes on the Board.
+    /// They could not be teleported to, because they belong to a window
+    /// Allward has nothing to do with. A pane is ours if we spawned the shell
+    /// it runs in, so ancestry is the test.
+    static func attachedHost(processTable: String, rootPID: Int32) -> HostAlias? {
+        var parents: [Int32: Int32] = [:]
+        var candidates: [(pid: Int32, arguments: [String])] = []
         for line in processTable.split(whereSeparator: \.isNewline) {
-            let arguments = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            guard arguments.contains(where: isHerdrCommand) else { continue }
-            if let host = remoteTarget(in: arguments) { return HostAlias(rawValue: host) }
-            if arguments.contains("server") { localServer = true }
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            guard fields.count >= 3, let pid = Int32(fields[0]), let ppid = Int32(fields[1])
+            else { continue }
+            parents[pid] = ppid
+            let arguments = Array(fields.dropFirst(2))
+            if arguments.contains(where: isHerdrCommand) {
+                candidates.append((pid, arguments))
+            }
+        }
+        var localServer = false
+        for candidate in candidates
+        where descends(candidate.pid, from: rootPID, parents: parents) {
+            if let host = remoteTarget(in: candidate.arguments) {
+                return HostAlias(rawValue: host)
+            }
+            if candidate.arguments.contains("server") { localServer = true }
         }
         return localServer ? HostAlias(rawValue: "localhost") : nil
+    }
+
+    /// Walks up the process tree, bounded so a cycle cannot hang the caller.
+    static func descends(_ pid: Int32, from root: Int32, parents: [Int32: Int32]) -> Bool {
+        var current = pid
+        for _ in 0 ..< 64 {
+            if current == root { return true }
+            guard let parent = parents[current], parent != current, parent > 0 else { return false }
+            current = parent
+        }
+        return false
     }
 
     /// `--remote <target>` or `--remote=<target>`; `-` is a flag, not a host.
@@ -57,7 +90,7 @@ public enum HerdrDiscovery {
         await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/ps")
-            process.arguments = ["-axo", "args="]
+            process.arguments = ["-axo", "pid=,ppid=,args="]
             let output = Pipe()
             process.standardOutput = output
             process.standardError = Pipe()
