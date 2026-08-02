@@ -99,6 +99,30 @@ with a test that fails without it.
 - **Delete what you replace.** No compatibility shims or deprecated paths unless
   asked for.
 - Comments explain why. Never narrate a line's mechanics mid-function.
+- **Build what was asked, at the size asked.** An abstraction for a second
+  caller that does not exist, a knob nobody asked for, a retry wrapper around a
+  call that does not fail: gold plating, all of it. A defect inside the change
+  you are already making is yours to fix. A defect elsewhere is a note, not a
+  diff.
+- **Governance work is the most seductive work available.** It feels like the
+  highest-leverage thing on the board and it extends forever. Being good at it
+  improves the justification, not the result. Expect the pull hardest when the
+  task is itself about process or quality.
+- **Bound the machinery, then freeze it.** A script, receipt, or check earns
+  its place by gating something named. Keep the ones that have caught a real
+  defect, delete the tranches that only deepen the apparatus, and write
+  deferred rigor down as debt instead of building it against an imagined
+  future.
+- **The deliverable outranks the apparatus.** Shipping the feature beats
+  perfecting the thing that would verify it. The receipts scripts are not the
+  exception you are looking for: they are the evidence a change is done, not
+  scaffolding around it.
+- **Budget the review loop, then decline.** Review finds real defects for about
+  two passes. After that it invents adversarial cases against the previous
+  pass's fix, and that does not terminate. From the third pass, only a
+  correctness, security, or reliability defect, a failing check, or a claim
+  that is wrong against the tree is actionable; decline the rest on the record,
+  with the reason. A tenth pass is not rigor.
 
 `.claude/napkin.md` collects specific corrections from earlier sessions. Read it,
 and add to it when you get something wrong.
