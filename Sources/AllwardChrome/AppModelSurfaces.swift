@@ -548,10 +548,6 @@ extension AppModel {
             configuration.terminal.cursorBlink = value
         case ("terminal.scrollback-capacity", let .number(value, _, _)):
             configuration.terminal.scrollbackCapacity = Int(value)
-        case ("privacy.clipboard-read", let .toggle(value)):
-            configuration.terminal.allowClipboardRead = value
-        case ("privacy.log-file", let .toggle(value)):
-            configuration.terminal.allowLogFile = value
         case ("attention.bar", let .choice(selectedID, _)):
             guard let visibility = AttentionBarVisibility(rawValue: selectedID) else { return false }
             configuration.terminal.attentionBar = visibility

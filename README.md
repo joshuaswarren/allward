@@ -94,22 +94,30 @@ It exposes pane control, screen and history reads, board and router queries, Roo
 
 ## Privacy
 
+Copy and paste are ordinary and always work: ⌘C, ⌘V, mouse selection, and
+bracketed paste. Nothing below changes that.
+
 These are facts about how Allward works, not things to configure:
 
 - No telemetry, no analytics, no crash reporter. Nothing is sent anywhere.
 - Dictation is transcribed on the device. The audio is discarded immediately
   and is never written to disk.
-- A program running in a pane can *set* the clipboard, and cannot read it.
+- A program running in a pane can *set* the clipboard. It cannot *read* it.
 - A program cannot ask the terminal to write a file.
 
-The last two are the only ones that can be changed, because xterm defines
-sequences for both and some tools expect them. They are off, and they live in
-Settings under Privacy:
+The last two are xterm sequences that hand something to the program rather than
+to you, so they are refused. Neither appears in Settings, because neither is a
+preference — turning them on weakens the terminal, and doing that should take
+more than a click. Both are keys in `~/.config/allward/allward.toml`:
 
-- **Let programs read the clipboard** (`OSC 52` read). On, any program can read
-  whatever you last copied, without asking.
-- **Let programs write a log file** (`OSC 46`). On, a program chooses the path
-  as well as the contents.
+```toml
+[terminal]
+# OSC 52 read. On, any program can read whatever you last copied, without
+# asking — including a program on the far end of an SSH connection.
+allow-clipboard-read = false
+# OSC 46. On, a program chooses the path it writes to as well as the contents.
+allow-log-file = false
+```
 
 ## Develop
 

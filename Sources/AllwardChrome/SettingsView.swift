@@ -152,7 +152,6 @@ public struct SettingsView: View {
         case .themes: themeSettings
         case .keys: keySettings
         case .integrations: integrationSettings
-        case .privacy: privacySettings
         }
     }
 
@@ -475,12 +474,6 @@ public struct SettingsView: View {
         }
     }
 
-    private var privacySettings: some View {
-        VStack(alignment: .leading, spacing: SpaceToken.section.points) {
-            SectionHeader("Privacy")
-            ForEach(state.privacy) { item in generalControl(item) }
-        }
-    }
 
 
 
@@ -640,7 +633,6 @@ public struct SettingsView: View {
         case .themes: "Appearance"
         case .keys: "Keys"
         case .integrations: "Integrations"
-        case .privacy: "Privacy"
         }
     }
 

@@ -119,34 +119,21 @@ final class SettingsBehaviourTests: XCTestCase {
         XCTAssertEqual(rooms.count, 1)
     }
 
-    /// Settings holds settings. Statements of fact belong in the README.
+    /// Settings holds settings, and nothing else.
     ///
-    /// Privacy listed three rows that were not settings: "Intelligence", which
-    /// names no feature; "Crash reports", promising review before sharing a
-    /// report never collected; and a note that dictation audio is discarded.
-    /// Nothing there could be decided, so nothing there belonged.
+    /// Privacy was a tab of three statements: "Intelligence", which names no
+    /// feature; "Crash reports", promising review before sharing a report this
+    /// application has never collected; and a true note about dictation. None
+    /// could be decided. Replacing them with the two switches that reach
+    /// outside the terminal was worse, not better - "Let programs read the
+    /// clipboard" reads as though copy and paste can be turned off, which is
+    /// not something a terminal should offer. They are configuration keys, and
+    /// the tab is gone.
     @MainActor
-    func testPrivacyOffersOnlyThingsAPersonCanDecide() throws {
-        let state = SurfaceProjection.settings(
-            configuration(),
-            rooms: [.personal],
-            themes: ThemeCatalog.builtIns.map(\.name),
-            adapterHealth: .none,
-            mcpCommandLine: "allward-mcp",
-            shellLane: "OSC 133"
-        )
-        XCTAssertFalse(state.privacy.isEmpty, "Privacy must not be an empty tab.")
-        for item in state.privacy {
-            XCTAssertTrue(
-                item.isEnabled,
-                "'\(item.id)' cannot be changed, so it is a fact and belongs in the README.")
-            guard case .toggle = item.value else {
-                return XCTFail("'\(item.id)' is not a control.")
-            }
-        }
-        XCTAssertEqual(
-            Set(state.privacy.map(\.id)),
-            ["privacy.clipboard-read", "privacy.log-file"])
+    func testSettingsOffersNoTabOfFacts() {
+        XCTAssertFalse(
+            SettingsTab.allCases.contains { $0.rawValue == "privacy" },
+            "A Privacy tab with nothing to decide is a README section in the wrong place.")
     }
 
     /// Both reach outside the terminal, so both start off.
@@ -168,8 +155,6 @@ final class SettingsBehaviourTests: XCTestCase {
         case "terminal.cursor-blink": .toggle(true)
         case "terminal.scrollback-capacity":
             .number(value: 5000, range: 1...10_000_000, step: 1000)
-        case "privacy.clipboard-read", "privacy.log-file":
-            .toggle(true)
         case "attention.bar":
             .choice(selectedID: AttentionBarVisibility.always.rawValue, choices: [])
         case "board.presentation":

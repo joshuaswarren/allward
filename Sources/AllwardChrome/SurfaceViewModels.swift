@@ -656,7 +656,6 @@ public enum SettingsTab: String, Identifiable, Hashable, Sendable, CaseIterable 
     case themes
     case keys
     case integrations
-    case privacy
 
     public var id: String { rawValue }
 }
@@ -790,19 +789,18 @@ public struct SettingsViewState: Hashable, Sendable {
     public var themes: [ThemeSetting]
     public var keys: [KeySetting]
     public var integrations: [IntegrationSetting]
-    public var privacy: [GeneralSetting]
     public init(
         presentation: ComposedPresentation, subject: PresentationSubject, selectedTab: SettingsTab,
         general: [GeneralSetting], appearance: [GeneralSetting] = [], sound: [GeneralSetting] = [],
         rooms: [RoomSetting], themes: [ThemeSetting],
         keys: [KeySetting],
-        integrations: [IntegrationSetting], privacy: [GeneralSetting]
+        integrations: [IntegrationSetting]
     ) {
         self.presentation = presentation; self.subject = subject; self.selectedTab = selectedTab
         self.general = general; self.appearance = appearance; self.sound = sound
         self.rooms = rooms; self.themes = themes
         self.keys = keys
-        self.integrations = integrations; self.privacy = privacy
+        self.integrations = integrations
     }
 
     public static func fixture(selectedTab: SettingsTab = .general) -> SettingsViewState {
@@ -883,8 +881,7 @@ public struct SettingsViewState: Hashable, Sendable {
                     commandLine: "allward-mcp", presentation: live,
                     subject: PresentationSubject(componentName: "Integration", target: "Allward MCP"),
                     isEnabled: true),
-            ],
-            privacy: [])
+            ])
     }
 
     private static let fixtureKeys = [
