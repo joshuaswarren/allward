@@ -18,6 +18,7 @@ private final class AppSurfaceState {
     var router: RouterViewState?
     var digest: DigestViewState?
     var lastActionMessage: String?
+    var configurationLoadFailure: String?
     var messageClearTask: Task<Void, Never>?
     var snapshot: SurfaceSnapshot?
     var projectedGeneration: Generation?
@@ -90,6 +91,17 @@ extension AppModel {
                 guard let self else { return }
                 await projectSurfaceSnapshot(for: self, force: true)
             }
+        }
+    }
+
+    /// Set when the configuration file exists but could not be read. Writing
+    /// settings while it is set would replace that file with defaults, so every
+    /// write is refused until the file parses again.
+    public var configurationLoadFailure: String? {
+        get { surfaceState(for: self).configurationLoadFailure }
+        set {
+            surfaceState(for: self).configurationLoadFailure = newValue
+            if let newValue { lastActionMessage = newValue }
         }
     }
 
@@ -308,6 +320,10 @@ extension AppModel {
             return
         }
 
+        if let failure = configurationLoadFailure {
+            lastActionMessage = "Settings cannot be saved: \(failure)"
+            return
+        }
         var updated = configuration
         guard apply(update, to: &updated) else { return }
         do {
@@ -513,6 +529,14 @@ extension AppModel {
                 return false
             }
             return true
+        case let .setHerdrHost(host):
+            if let failure = Self.applyHerdrConnection(
+                host: host, activeRoom: activeRoom, to: &configuration)
+            {
+                lastActionMessage = failure
+                return false
+            }
+            return true
         }
     }
 
@@ -569,6 +593,41 @@ extension AppModel {
         guard id == "mcp" else { return false }
         configuration.mcpEnabled = enabled
         return true
+    }
+    static func applyHerdrConnection(
+        host rawHost: String?,
+        activeRoom: Room?,
+        to configuration: inout Configuration
+    ) -> String? {
+        guard let activeRoom else { return "Select a Room before connecting herdr." }
+        guard let index = configuration.rooms.firstIndex(where: { $0.id == activeRoom.id }) else {
+            return "The active Room is no longer configured."
+        }
+
+        let trimmedHost = rawHost?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedHost.isEmpty else {
+            configuration.rooms[index] = configuration.rooms[index].connectedToHerdr(nil)
+            return nil
+        }
+
+        let host = HostAlias(rawValue: trimmedHost)
+        if let otherRoom = configuration.rooms.first(where: {
+            $0.id != activeRoom.id && ($0.herdrHost == host || $0.hostAliases.contains(host))
+        }) {
+            return "\(host.rawValue) is already assigned to Room \(otherRoom.name)."
+        }
+
+        if !configuration.hosts.contains(where: { $0.alias == host }) {
+            let components = trimmedHost.split(
+                separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            let user = components.count == 2 ? String(components[0]) : nil
+            let hostname = components.count == 2 ? String(components[1]) : trimmedHost
+            guard !hostname.isEmpty else { return "Enter a hostname after the @ sign." }
+            configuration.hosts.append(
+                HostConfiguration(alias: host, hostname: hostname, user: user))
+        }
+        configuration.rooms[index] = configuration.rooms[index].connectedToHerdr(host)
+        return nil
     }
 
     private static func parseRoomID(_ raw: String) -> RoomID? {

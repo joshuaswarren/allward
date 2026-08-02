@@ -33,15 +33,17 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     private func bootstrap() async {
         let configurationURL = AllwardPaths.configurationFile()
-        let configuration = await Self.loadOrSeedConfiguration(at: configurationURL)
+        let loaded = await Self.loadOrSeedConfiguration(at: configurationURL)
+        let configuration = loaded.configuration
 
         let roomStore = RoomStore(rooms: configuration.rooms)
         let surfaces = SurfaceStore(clock: SystemClock())
-        let adapter = await Self.makeAdapter(for: configuration)
+        let adapterSetup = await Self.makeAdapter(for: configuration)
         let model = AppModel(
             configuration: configuration, roomStore: roomStore, surfaces: surfaces,
-            adapter: adapter)
+            adapter: adapterSetup.adapter, roomAdapters: adapterSetup.roomAdapters)
         self.model = model
+        model.configurationLoadFailure = loaded.failure
         await model.loadRooms()
 
         // The first window is the first tab. Creating it up front gives the
@@ -81,14 +83,32 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
 
     /// A first run must land in a usable app, so a missing configuration file is
     /// seeded with the validated defaults rather than treated as an error.
-    private static func loadOrSeedConfiguration(at url: URL) async -> Configuration {
-        if let existing = try? await Configuration.loadOffMainThread(from: url) { return existing }
+    ///
+    /// A file that exists but does not parse is the opposite case and must
+    /// never be overwritten. The text belongs to whoever wrote it, the fault is
+    /// usually one typo, and replacing it with defaults destroys the settings
+    /// they were editing at the moment they most need them back. Allward runs
+    /// on defaults for this launch and says so, leaving the file untouched.
+    static func loadOrSeedConfiguration(at url: URL) async -> (
+        configuration: Configuration, failure: String?
+    ) {
+        do {
+            return (try await Configuration.loadOffMainThread(from: url), nil)
+        } catch {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return (
+                    Configuration(),
+                    "\(url.lastPathComponent) was not read, so defaults are in use "
+                        + "and your file is unchanged: \(error.localizedDescription)"
+                )
+            }
+        }
         let defaults = Configuration()
         await Task.detached(priority: .userInitiated) {
             try? FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         }.value
-        return (try? await defaults.writeOffMainThread(to: url)) ?? defaults
+        return ((try? await defaults.writeOffMainThread(to: url)) ?? defaults, nil)
     }
 
     /// Live reload is file-event driven; nothing polls the configuration path.
@@ -107,34 +127,13 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    /// herdr is optional, and it was unreachable.
-    ///
-    /// The adapter was built only when a Room declared an adapter server, and
-    /// nothing in the interface can declare one - it had to be typed into the
-    /// configuration file. So Integrations reported "no herdr" to everyone,
-    /// including people with herdr running, because Allward had never looked.
-    ///
-    /// So the running processes are asked instead: `herdr --remote <host>` in a
-    /// pane names the host, and a local `herdr server` names this machine. A
-    /// Room that declares a host still wins, because that is deliberate.
-    private static func makeAdapter(for configuration: Configuration) async -> any MultiplexerAdapter {
-        let declared = configuration.rooms
-            .filter { !$0.adapterServers.isEmpty }
-            .flatMap { $0.hostAliases }
-            .first
-        let host: HostAlias?
-        if let declared {
-            host = declared
-        } else {
-            host = await HerdrDiscovery.attachedHost()
-        }
-        guard let host else {
-            return NoMultiplexerAdapter()
-        }
-        guard let endpoint = HerdrProcessExecutor.endpoint(host: host) else {
-            return NoMultiplexerAdapter()
-        }
-        return HerdrAdapter(client: HerdrProcessExecutor.makeClient(for: endpoint))
+    private static func makeAdapter(
+        for configuration: Configuration
+    ) async -> (adapter: SwitchableAdapter, roomAdapters: RoomAdapters) {
+        let adapter = SwitchableAdapter()
+        let roomAdapters = RoomAdapters(switchable: adapter)
+        await roomAdapters.activate(configuration.rooms.first)
+        return (adapter: adapter, roomAdapters: roomAdapters)
     }
 
 

@@ -12,6 +12,7 @@ public enum SettingsUpdate: Hashable, Sendable {
     case selectTheme(themeID: String)
     case setKeyShortcut(keyID: String, shortcut: String)
     case setIntegration(integrationID: String, enabled: Bool)
+    case setHerdrHost(host: String?)
     case addRoom
     case renameRoom(roomID: String, name: String)
     case deleteRoom(roomID: String)
@@ -31,6 +32,7 @@ public struct SettingsView: View {
     @State private var selectedThemeID: String?
     @State private var keyShortcuts: [String: String]
     @State private var integrations: [String: Bool]
+    @State private var herdrHost: String
 
     private let state: SettingsViewState
     private let onUpdate: @MainActor (SettingsUpdate) -> Void
@@ -60,6 +62,7 @@ public struct SettingsView: View {
         _integrations = State(initialValue: Dictionary(
             uniqueKeysWithValues: state.integrations.map { ($0.id, $0.isEnabled) }
         ))
+        _herdrHost = State(initialValue: state.integrations.first(where: { $0.id == "herdr" })?.configuredValue ?? "")
     }
 
     public var body: some View {
@@ -463,6 +466,9 @@ public struct SettingsView: View {
                             .truncationMode(.middle)
                             .accessibilityLabel("Client command, \(commandLine)")
                     }
+                    if integration.id == "herdr" {
+                        herdrHostControl(integration)
+                    }
                 }
                 .padding(.vertical, SpaceToken.blockCompact.points)
                 .overlay(alignment: .bottom) {
@@ -474,8 +480,42 @@ public struct SettingsView: View {
         }
     }
 
+    private func herdrHostControl(_ integration: IntegrationSetting) -> some View {
+        let typed = herdrHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: SpaceToken.blockCompact.points) {
+            TextField("SSH alias or user@host", text: $herdrHost)
+                .textFieldStyle(.roundedBorder)
+                .tokenFont(.uiBody, palette)
+                .onSubmit { emitHerdrHost() }
+                .accessibilityLabel("herdr server for this Room")
+            HStack(spacing: SpaceToken.inlineStandard.points) {
+                Button("Connect") { emitHerdrHost() }
+                    .disabled(typed.isEmpty || typed == integration.configuredValue)
+                if integration.configuredValue != nil {
+                    Button("Disconnect") {
+                        herdrHost = ""
+                        emit(.setHerdrHost(host: nil))
+                    }
+                }
+                if !integration.configuredChoices.isEmpty {
+                    Menu("Configured hosts") {
+                        ForEach(integration.configuredChoices, id: \.self) { host in
+                            Button(host) {
+                                herdrHost = host
+                                emitHerdrHost()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-
+    private func emitHerdrHost() {
+        let value = herdrHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        herdrHost = value
+        emit(.setHerdrHost(host: value.isEmpty ? nil : value))
+    }
 
     private func settingLabel(_ label: String, detail: String?) -> some View {
         VStack(alignment: .leading, spacing: SpaceToken.inlineTight.points) {

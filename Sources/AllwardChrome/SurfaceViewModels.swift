@@ -756,18 +756,23 @@ public struct IntegrationSetting: Identifiable, Hashable, Sendable {
     public var presentation: ComposedPresentation
     public var subject: PresentationSubject
     public var isEnabled: Bool
+    public var configuredValue: String?
+    public var configuredChoices: [String]
     /// Whether this integration is something you switch, or something that
-    /// reports. herdr appears when a herdr server is running and goes away when
-    /// it stops, so a switch beside it is a lie.
+    /// reports. herdr's runtime health is a report; its Room host is edited
+    /// separately below the row.
     public var isSwitchable: Bool
     public init(
         id: String, name: String, detail: String?, commandLine: String?,
         presentation: ComposedPresentation, subject: PresentationSubject, isEnabled: Bool,
-        isSwitchable: Bool = true
+        isSwitchable: Bool = true, configuredValue: String? = nil,
+        configuredChoices: [String] = []
     ) {
         self.isSwitchable = isSwitchable
         self.id = id; self.name = name; self.detail = detail; self.commandLine = commandLine
         self.presentation = presentation; self.subject = subject; self.isEnabled = isEnabled
+        self.configuredValue = configuredValue
+        self.configuredChoices = configuredChoices
     }
 }
 
@@ -872,10 +877,10 @@ public struct SettingsViewState: Hashable, Sendable {
             keys: Self.fixtureKeys,
             integrations: [
                 IntegrationSetting(
-                    id: "herdr", name: "herdr", detail: "Workspace adapter available",
+                    id: "herdr", name: "herdr", detail: "Commerce connects to herdr-dev. Connected.",
                     commandLine: nil, presentation: live,
-                    subject: PresentationSubject(componentName: "Integration", target: "herdr"),
-                    isEnabled: true),
+                    subject: PresentationSubject(componentName: "Integration", target: "herdr adapter for Commerce"),
+                    isEnabled: true, configuredValue: "herdr-dev", configuredChoices: ["herdr-dev"]),
                 IntegrationSetting(
                     id: "mcp", name: "MCP", detail: "Local client command",
                     commandLine: "allward-mcp", presentation: live,

@@ -72,6 +72,32 @@ CODESIGN_IDENTITY="Apple Development: You (TEAMID)" bash scripts/make-app.sh
 
 Configuration is a plain TOML file at `~/.config/allward/allward.toml`. Allward writes it on first launch. It reloads when the file changes on disk. Settings writes the same file.
 
+## Connect a Room to herdr
+
+A Room is a workspace, and each one connects to its own herdr server - Personal
+to your laptop, Work to a jump host, and so on. There is no app-wide herdr.
+
+Open **Settings -> Integrations**, type an SSH alias or `user@host`, and press
+Connect. That Room's sessions appear on the Board (`⇧⌘B`), and the empty Board
+offers the same control. Nothing needs to be installed on this Mac: Allward runs
+`ssh <host> herdr`, so herdr only has to exist on the machine your agents are
+running on. Disconnect clears it.
+
+The Room owns the connection, so two Rooms cannot claim the same server - naming
+one that another Room already uses is refused, and says which Room has it.
+
+In `~/.config/allward/allward.toml` the same thing reads:
+
+```toml
+[[rooms]]
+name = "Personal"
+# ... the Room's other keys ...
+
+[[rooms.adapter-servers]]
+adapter = "herdr"
+server = "jump-host"
+```
+
 ## Connect the MCP server
 
 `allward-mcp` ships inside the bundle and talks to the running app over an owner-only socket.

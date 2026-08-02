@@ -63,6 +63,10 @@ extension AppModel {
     }
 
     private func applyTerminalConfiguration(_ updated: Configuration) async {
+        if let failure = configurationLoadFailure {
+            lastActionMessage = "The font size cannot be saved: \(failure)"
+            return
+        }
         do {
             let written = try await updated.writeOffMainThread(to: AllwardPaths.configurationFile())
             await applyConfiguration(written)

@@ -125,6 +125,7 @@ extension MainWindowController {
         let state = SurfaceProjection.settings(
             model.configuration,
             rooms: model.rooms,
+            activeRoom: model.activeRoom,
             themes: ThemeCatalog.builtIns.map(\.name),
             adapterHealth: model.adapterHealth,
             mcpCommandLine: "allward-mcp",
@@ -211,6 +212,30 @@ extension MainWindowController {
             )
         )
     }
+    public func presentHerdrHostPicker() {
+        let room = model.activeRoom
+        present(
+            .hostPicker,
+            content: HerdrHostPickerSurfaceView(
+                roomName: room?.name,
+                currentHost: room?.herdrHost?.rawValue,
+                choices: model.configuration.hosts.map { $0.alias.rawValue }.sorted(),
+                onConnect: { [weak self] host in
+                    guard let self else { return }
+                    Task {
+                        await model.applySettingsUpdate(.setHerdrHost(host: host))
+                        if model.lastActionMessage == nil {
+                            dismissSummonedSurface()
+                        } else {
+                            presentHerdrHostPicker()
+                        }
+                    }
+                },
+                onDismiss: { [weak self] in self?.dismissSummonedSurface() }
+            )
+        )
+    }
+
 
     private func performBoardAction(_ action: String) {
         switch action {
@@ -219,6 +244,8 @@ extension MainWindowController {
             Task { await model.newLocalPane() }
         case "connect-ssh":
             presentHostPicker()
+        case "connect-herdr":
+            presentHerdrHostPicker()
         case "open-diagnostics", "inspect-connection", "inspect-source":
             presentDiagnostics()
         default:
@@ -355,6 +382,90 @@ extension MainWindowController {
     }
 }
 
+
+@MainActor
+private struct HerdrHostPickerSurfaceView: View {
+    @Environment(\.allwardPalette) private var palette
+    @FocusState private var inputFocused: Bool
+
+    let roomName: String?
+    let currentHost: String?
+    let choices: [String]
+    let onConnect: @MainActor (String?) -> Void
+    let onDismiss: @MainActor () -> Void
+    @State private var hostInput: String
+
+    init(
+        roomName: String?,
+        currentHost: String?,
+        choices: [String],
+        onConnect: @escaping @MainActor (String?) -> Void,
+        onDismiss: @escaping @MainActor () -> Void
+    ) {
+        self.roomName = roomName
+        self.currentHost = currentHost
+        self.choices = choices
+        self.onConnect = onConnect
+        self.onDismiss = onDismiss
+        _hostInput = State(initialValue: currentHost ?? "")
+    }
+
+    var body: some View {
+        let available = roomName != nil
+        SurfacePanel(
+            title: "Connect this Room to herdr",
+            accessibilityTitle: "Connect this Room to herdr",
+            presentation: ComposedPresentation(
+                state: available ? .live : .empty,
+                usability: available ? .usableActionCapable : .closedAbsent
+            ),
+            subject: PresentationSubject(
+                componentName: "herdr connection",
+                target: roomName.map { "\($0) Room" } ?? "No active Room",
+                reason: available ? nil : "Select a Room before connecting herdr."
+            ),
+            onDismiss: onDismiss,
+            focusTitleOnAppear: false
+        ) {
+            if let roomName {
+                VStack(alignment: .leading, spacing: SpaceToken.blockStandard.points) {
+                    Text("\(roomName) connects to its own herdr server.")
+                        .tokenFont(.uiBody, palette)
+                        .tokenForeground(.textSecondary, palette)
+                    TextField("SSH alias or user@host (empty disconnects)", text: $hostInput)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($inputFocused)
+                        .onSubmit { submit() }
+                    HStack(spacing: SpaceToken.inlineStandard.points) {
+                        Button(hostInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "Disconnect" : "Connect") { submit() }
+                        if !choices.isEmpty {
+                            Menu("Configured hosts") {
+                                ForEach(choices, id: \.self) { host in
+                                    Button(host) {
+                                        hostInput = host
+                                        submit()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                EmptyStateView(
+                    title: "No active Room",
+                    reason: "Select a Room before connecting herdr.")
+            }
+        }
+        .task { inputFocused = available }
+    }
+
+    private func submit() {
+        let value = hostInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        hostInput = value
+        onConnect(value.isEmpty ? nil : value)
+    }
+}
 
 private struct SelectionEntry: Identifiable, Hashable {
     let id: String

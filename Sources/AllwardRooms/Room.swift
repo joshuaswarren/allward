@@ -121,6 +121,40 @@ public struct Room: Codable, Hashable, Sendable, Identifiable {
     self.defaults = defaults
   }
 
+  /// The herdr server this Room's sessions come from, if it has one.
+  ///
+  /// Rooms are separate workspaces, so each one answers this for itself: two
+  /// Rooms routinely point at different servers, and one pointing nowhere is
+  /// ordinary rather than a fault.
+  public var herdrHost: HostAlias? {
+    adapterServers.first { $0.adapterIdentifier == Self.herdrAdapterIdentifier }
+      .map { HostAlias($0.serverIdentifier) }
+  }
+
+  /// A copy of this Room bound to `host`, or to no herdr server when nil.
+  ///
+  /// The Room also claims the alias, because a Room owns the hosts it shows
+  /// and configuration refuses to let two Rooms claim the same one.
+  public func connectedToHerdr(_ host: HostAlias?) -> Room {
+    var copy = self
+    let previous = herdrHost
+    copy.adapterServers = adapterServers.filter {
+      $0.adapterIdentifier != Self.herdrAdapterIdentifier
+    }
+    if let previous, previous != host {
+      copy.hostAliases.remove(previous)
+    }
+    if let host {
+      copy.adapterServers.insert(
+        AdapterServerReference(
+          adapterIdentifier: Self.herdrAdapterIdentifier, serverIdentifier: host.rawValue))
+      copy.hostAliases.insert(host)
+    }
+    return copy
+  }
+
+  public static let herdrAdapterIdentifier = "herdr"
+
   public static let personal = Room(
     id: RoomID(rawValue: UUID(uuidString: "76F86540-A979-4E97-A29C-B67C94B11482")!),
     name: "Personal",

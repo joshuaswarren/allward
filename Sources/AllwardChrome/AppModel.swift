@@ -43,6 +43,7 @@ public final class AppModel {
 
     private let clock: any AllwardClock
     let adapter: any MultiplexerAdapter
+    private let roomAdapters: RoomAdapters?
     private var paneViews: [PaneID: TerminalPaneView] = [:]
     private var paneContainers: [PaneID: PaneContainerView] = [:]
     private var snapshotTasks: [PaneID: Task<Void, Never>] = [:]
@@ -69,12 +70,14 @@ public final class AppModel {
         roomStore: RoomStore,
         surfaces: SurfaceStore,
         adapter: any MultiplexerAdapter,
+        roomAdapters: RoomAdapters? = nil,
         clock: any AllwardClock = SystemClock()
     ) {
         self.configuration = configuration
         self.roomStore = roomStore
         self.surfaces = surfaces
         self.adapter = adapter
+        self.roomAdapters = roomAdapters
         self.clock = clock
         self.theme = TerminalThemeBridge.rendererTheme(
             named: configuration.rooms.first?.terminalThemeName ?? "Allward Night",
@@ -205,6 +208,7 @@ public final class AppModel {
                 allowClipboardRead: configuration.terminal.allowClipboardRead))
         try? await roomStore.replaceRooms(configuration.rooms)
         rooms = await roomStore.rooms()
+        await roomAdapters?.apply(configuration.rooms)
         refreshPalette()
         for container in containers.values {
             container.terminal.setFont(
@@ -286,9 +290,13 @@ public final class AppModel {
     }
 
     public func refreshTopology() async {
+        let previousActiveRoomID = activeRoom?.id
         topology = await control.listPanes()
         if focusedWindow == nil || !topology.windows.contains(where: { $0.id == focusedWindow }) {
             focusedWindow = topology.windows.first?.id
+        }
+        if previousActiveRoomID != activeRoom?.id {
+            await roomAdapters?.activate(activeRoom)
         }
         for pane in topology.panes { adoptPane(pane.id) }
         let live = Set(topology.panes.map(\.id))

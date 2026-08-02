@@ -147,6 +147,7 @@ public enum SurfaceProjection {
     public static func settings(
         _ configuration: Configuration,
         rooms: [Room],
+        activeRoom: Room? = nil,
         themes: [String],
         adapterHealth: AdapterHealth,
         mcpCommandLine: String,
@@ -176,6 +177,7 @@ public enum SurfaceProjection {
             keys: keySettings(configuration.dictationKey),
             integrations: integrationSettings(
                 configuration: configuration,
+                activeRoom: activeRoom,
                 adapterHealth: adapterHealth,
                 mcpCommandLine: mcpCommandLine
             ),
@@ -707,21 +709,23 @@ public enum SurfaceProjection {
         return TokenColor(hex: id)
     }
 
-    /// What herdr is actually doing. Claiming it routes panes while reporting
-    /// degraded health says two different things at once.
-    private static func herdrDetail(_ health: AdapterHealth) -> String {
+    /// Health describes the active Room's connection, not a global app state.
+    /// The status pill beside the row already reports a healthy one, so only a
+    /// problem earns a sentence here.
+    private static func herdrDetail(_ room: Room?, health: AdapterHealth) -> String {
+        guard let room else { return "This Room has no herdr server." }
+        guard let host = room.herdrHost else { return "\(room.name) has no herdr server." }
+        let trouble: String?
         switch health {
-        case .none:
-            "No server found. Panes appear here when herdr is running."
-        case .degraded:
-            "Reachable, but not answering fully. Panes may be missing."
-        case .denied:
-            "Refused the connection. Check the herdr server's permissions."
-        case .error:
-            "Found, but the connection failed."
-        case .available:
-            "Routing panes into Allward."
+        case .available: trouble = nil
+        case .none: trouble = "Not reachable yet."
+        case .degraded: trouble = "Reachable, but not answering fully."
+        case .denied: trouble = "The connection was refused."
+        case .error: trouble = "The connection failed."
         }
+        let connection = "\(room.name) connects to \(host.rawValue)."
+        guard let trouble else { return connection }
+        return "\(connection) \(trouble)"
     }
 
     private static func roomTintChoices(_ rooms: [Room]) -> [RoomTintChoice] {
@@ -781,6 +785,7 @@ public enum SurfaceProjection {
 
     private static func integrationSettings(
         configuration: Configuration,
+        activeRoom: Room?,
         adapterHealth: AdapterHealth,
         mcpCommandLine: String
     ) -> [IntegrationSetting] {
@@ -794,17 +799,19 @@ public enum SurfaceProjection {
             IntegrationSetting(
                 id: "herdr",
                 name: "herdr",
-                detail: herdrDetail(adapterHealth),
+                detail: herdrDetail(activeRoom, health: adapterHealth),
                 commandLine: nil,
                 presentation: PresentationComposer.compose(adapterComposition),
                 subject: PresentationSubject(
                     componentName: "Integration",
-                    target: "herdr adapter",
+                    target: "herdr adapter for \(activeRoom?.name ?? "this Room")",
                     reason: recordReason(adapterComposition, detail: nil),
                     capability: "Workspace routing"
                 ),
                 isEnabled: adapterHealth != .none,
-                isSwitchable: false
+                isSwitchable: false,
+                configuredValue: activeRoom?.herdrHost?.rawValue,
+                configuredChoices: configuration.hosts.map { $0.alias.rawValue }.sorted()
             ),
             IntegrationSetting(
                 id: "mcp",
