@@ -4,6 +4,7 @@ import AllwardHerdr
 import AllwardMultiplexer
 import AllwardRemote
 import AllwardSSH
+import Foundation
 
 /// The sandboxed product's platform: remote only.
 ///
@@ -13,13 +14,26 @@ public struct MASPlatform: PlatformServices {
     /// Configured hosts. A sandboxed product cannot read ~/.ssh/config, so this
     /// is the only place an alias resolves.
     public let hosts = RemoteHostDirectory()
+    /// Decision 39: keys in the Keychain, synchronising over iCloud.
+    public let credentials = KeychainCredentialStore()
+    /// Pins survive relaunch, or trust on first use re-trusts a changed key on the
+    /// next launch, which is the attack it exists to notice.
+    public let hostTrust: DurableHostTrust
 
-    public init() {}
+    public init() {
+        // NSHomeDirectory() is the container under App Sandbox, which
+        // docs/evidence/SANDBOX.md measured as the only writable home here.
+        hostTrust = DurableHostTrust(
+            url: DurableHostTrust.defaultURL(
+                inContainer: URL(fileURLWithPath: NSHomeDirectory())
+                    .appendingPathComponent("Library/Application Support/Allward", isDirectory: true)
+            ))
+    }
 
     /// Direct SSH and nothing else. Decision 5 makes MAS remote-only, and there
     /// is no reduced local shell to fall back to.
     public var transports: [any RemoteTransport] {
-        [RusshTransport(hosts: hosts)]
+        [RusshTransport(hosts: hosts, hostTrust: hostTrust, credentials: credentials)]
     }
 
     /// None. A sandboxed product owns no listener path outside its container, and
@@ -39,7 +53,9 @@ public struct MASPlatform: PlatformServices {
         // `.ssh` always: there is no local herdr in a sandboxed product, so an
         // endpoint must never claim one.
         let endpoint = HerdrEndpoint(host: host, executionSite: .ssh)
-        let executor = HerdrExecChannelExecutor(transport: RusshTransport(hosts: hosts))
+        let executor = HerdrExecChannelExecutor(
+            transport: RusshTransport(
+                hosts: hosts, hostTrust: hostTrust, credentials: credentials))
         return HerdrAdapter(
             client: HerdrSocketClient(
                 endpoint: endpoint, executor: executor.executor(for: endpoint)))

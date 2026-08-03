@@ -15,13 +15,19 @@ import Foundation
 public struct RusshTransport: RemoteTransport {
     private let hosts: RemoteHostDirectory
     private let hostTrust: any SSHHostTrust
+    private let credentials: (any SSHCredentialStore)?
 
+    /// `credentials` signs without releasing the key, which is what the sandboxed
+    /// product uses. Absent, the transport authenticates from the host's configured
+    /// key file, which is the Developer ID path.
     public init(
         hosts: RemoteHostDirectory,
-        hostTrust: any SSHHostTrust = TrustOnFirstUseHostTrust()
+        hostTrust: any SSHHostTrust = TrustOnFirstUseHostTrust(),
+        credentials: (any SSHCredentialStore)? = nil
     ) {
         self.hosts = hosts
         self.hostTrust = hostTrust
+        self.credentials = credentials
     }
 
     public func supports(_ destination: RemoteDestination) -> Bool {
@@ -57,7 +63,8 @@ public struct RusshTransport: RemoteTransport {
             host: host,
             geometry: geometry,
             bound: bound,
-            hostTrust: hostTrust
+            hostTrust: hostTrust,
+            credentials: credentials
         )
     }
 }

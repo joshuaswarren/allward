@@ -49,6 +49,28 @@ pub struct AllwardSSHCallbacks {
     pub on_error: extern "C" fn(*mut c_void, *const c_char),
     pub verify_host_key:
         extern "C" fn(*mut c_void, *const c_char, *const c_char, *const u8, usize) -> bool,
+    /// Signs `to_sign` with the private half of the configured public key, and
+    /// writes an SSH signature blob to `out_signature`/`out_len`. Returns false to
+    /// fail authentication.
+    ///
+    /// This is what decision 39 needs: the key lives in Security.framework or the
+    /// Secure Enclave, and this library never sees its bytes. `algorithm` is the
+    /// negotiated signature algorithm, so the caller knows whether to use SHA-256
+    /// or SHA-512. The buffer must come from `allward_ssh_allocate` so Rust can
+    /// free it.
+    ///
+    /// Null means this session authenticates from a key file instead, which is the
+    /// Developer ID path.
+    pub sign: Option<
+        extern "C" fn(
+            *mut c_void,
+            *const c_char,
+            *const u8,
+            usize,
+            *mut *mut u8,
+            *mut usize,
+        ) -> bool,
+    >,
 }
 
 // The context is a Swift object pointer that Swift keeps alive for the session's
@@ -96,6 +118,10 @@ pub struct AllwardSSHConfig {
     /// Developer ID reads a key file. MAS leaves this null and signs through the
     /// Keychain instead, which is why the library never requires key bytes.
     pub private_key_path: *const c_char,
+    /// The public half, in OpenSSH one-line form ("ssh-rsa AAAA..."), used with the
+    /// `sign` callback. The server needs to know which identity is being offered;
+    /// only the signature itself requires the private half.
+    pub public_key_openssh: *const c_char,
     pub connect_timeout_ms: u64,
 }
 
@@ -180,6 +206,7 @@ struct Opened {
     command: Option<String>,
     want_pty: bool,
     private_key_path: Option<String>,
+    public_key_openssh: Option<String>,
     connect_timeout: Duration,
 }
 
@@ -222,6 +249,11 @@ pub unsafe extern "C" fn allward_ssh_open(
                 Some(Err(())) => return Err("key path was not valid UTF-8"),
                 None => None,
             },
+            public_key_openssh: match optional_str(config.public_key_openssh) {
+                Some(Ok(value)) => Some(value),
+                Some(Err(())) => return Err("public key was not valid UTF-8"),
+                None => None,
+            },
             connect_timeout: Duration::from_millis(config.connect_timeout_ms.max(1)),
         })
     })();
@@ -248,11 +280,17 @@ pub unsafe extern "C" fn allward_ssh_open(
 async fn authenticate(
     session: &mut Handle<Client>,
     opened: &Opened,
+    callbacks: AllwardSSHCallbacks,
 ) -> Result<(), String> {
+    // The external signer comes first. When it is present the private key is in
+    // Security.framework or the Secure Enclave and this library must never ask for
+    // bytes it is not allowed to have.
+    if let (Some(sign), Some(public_key)) = (callbacks.sign, opened.public_key_openssh.as_deref()) {
+        return authenticate_with_signer(session, opened, public_key, sign, callbacks).await;
+    }
     let Some(path) = opened.private_key_path.as_deref() else {
         return Err(
-            "no credential was supplied: this build authenticates with a key file, and the \
-             Keychain signer is phase 5 work"
+            "no credential was supplied: give a key file, or a public key plus a signer"
                 .to_owned(),
         );
     };
@@ -278,6 +316,137 @@ async fn authenticate(
     }
 }
 
+/// The signer declined. russh's signer error type carries a transport or key
+/// failure, and a refusal is neither, so it is reported as a key error with the
+/// reason the credential store already surfaced through `on_error`.
+fn signer_refused() -> russh::AgentAuthError {
+    russh::AgentAuthError::Key(russh::keys::Error::KeyIsCorrupt)
+}
+
+/// Signs by asking Swift, so the private key never enters this process's control.
+///
+/// russh hands us the exact bytes to sign and the negotiated hash algorithm, and
+/// expects back the SSH signature blob. Both are passed straight through: deciding
+/// what a signature means is the credential store's job, and duplicating that
+/// decision here would be a second place to get it wrong.
+struct DelegatedSigner {
+    callbacks: AllwardSSHCallbacks,
+}
+
+impl russh::Signer for DelegatedSigner {
+    type Error = russh::AgentAuthError;
+
+    async fn auth_sign(
+        &mut self,
+        _key: &russh::keys::agent::AgentIdentity,
+        hash_alg: Option<HashAlg>,
+        to_sign: Vec<u8>,
+    ) -> Result<Vec<u8>, Self::Error> {
+        let Some(sign) = self.callbacks.sign else {
+            return Err(signer_refused());
+        };
+        // The algorithm name the server will see. RFC 8332 ties the hash to the
+        // name, so telling Swift the name is telling it which digest to use.
+        let algorithm = match hash_alg {
+            Some(HashAlg::Sha512) => "rsa-sha2-512",
+            Some(HashAlg::Sha256) => "rsa-sha2-256",
+            None => "ssh-ed25519",
+            _ => "rsa-sha2-256",
+        };
+        let algorithm = CString::new(algorithm).map_err(|_| signer_refused())?;
+
+        let mut buffer: *mut u8 = std::ptr::null_mut();
+        let mut length: usize = 0;
+        let ok = sign(
+            self.callbacks.context,
+            algorithm.as_ptr(),
+            to_sign.as_ptr(),
+            to_sign.len(),
+            &mut buffer,
+            &mut length,
+        );
+        if !ok || buffer.is_null() || length == 0 {
+            return Err(signer_refused());
+        }
+        // Copy before freeing: the caller allocated it and we own it now.
+        let blob = unsafe { std::slice::from_raw_parts(buffer, length) }.to_vec();
+        unsafe { allward_ssh_free_buffer(buffer, length) };
+
+        // russh expects the buffer it handed us with the signature appended, wrapped
+        // in one more SSH string, exactly as its own agent client does. Framing is a
+        // russh convention, so it lives here rather than in the credential store,
+        // whose contract stays "return a signature blob".
+        let mut signed = to_sign;
+        signed.extend_from_slice(&(blob.len() as u32).to_be_bytes());
+        signed.extend_from_slice(&blob);
+        Ok(signed)
+    }
+}
+
+async fn authenticate_with_signer(
+    session: &mut Handle<Client>,
+    opened: &Opened,
+    public_key_openssh: &str,
+    _sign: extern "C" fn(
+        *mut c_void,
+        *const c_char,
+        *const u8,
+        usize,
+        *mut *mut u8,
+        *mut usize,
+    ) -> bool,
+    callbacks: AllwardSSHCallbacks,
+) -> Result<(), String> {
+    let public_key: russh::keys::ssh_key::PublicKey = public_key_openssh
+        .parse()
+        .map_err(|error| format!("the configured public key did not parse: {error}"))?;
+    // Ask the server which RSA hash it accepts before signing with one it will
+    // refuse; the same call is what makes a 4096-bit RSA key work at all.
+    let hash: Option<HashAlg> = session
+        .best_supported_rsa_hash()
+        .await
+        .map_err(|error| format!("{error}"))?
+        .flatten();
+    let mut signer = DelegatedSigner { callbacks };
+    let result = session
+        .authenticate_publickey_with(opened.user.clone(), public_key, hash, &mut signer)
+        .await
+        .map_err(|error| format!("{error}"))?;
+    if result.success() {
+        Ok(())
+    } else {
+        Err("the server rejected the signed identity".to_owned())
+    }
+}
+
+/// Allocates a buffer the `sign` callback fills. Swift must use this rather than
+/// `malloc` so the allocator that frees it is the one that made it.
+///
+/// # Safety
+/// The returned pointer is valid for `length` bytes, or null when `length` is zero.
+#[no_mangle]
+pub extern "C" fn allward_ssh_allocate(length: usize) -> *mut u8 {
+    if length == 0 {
+        return std::ptr::null_mut();
+    }
+    let mut buffer = vec![0u8; length];
+    let pointer = buffer.as_mut_ptr();
+    std::mem::forget(buffer);
+    pointer
+}
+
+/// Frees a buffer from `allward_ssh_allocate`.
+///
+/// # Safety
+/// `pointer` and `length` must be exactly what `allward_ssh_allocate` returned.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_free_buffer(pointer: *mut u8, length: usize) {
+    if pointer.is_null() || length == 0 {
+        return;
+    }
+    drop(Vec::from_raw_parts(pointer, length, length));
+}
+
 async fn run_session(
     opened: Opened,
     callbacks: AllwardSSHCallbacks,
@@ -299,7 +468,7 @@ async fn run_session(
     .map_err(|error| format!("{}:{}: {error}", opened.host, opened.port))?;
 
     callbacks.state(ALLWARD_SSH_STATE_AUTHENTICATING);
-    authenticate(&mut session, &opened).await?;
+    authenticate(&mut session, &opened, callbacks).await?;
 
     let mut channel = session
         .channel_open_session()
