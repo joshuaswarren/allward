@@ -112,6 +112,7 @@ import PackageDescription
             name: "allward-qa",
             dependencies: ["AllwardChrome", "AllwardDesign", "AllwardRenderer", "AllwardTerminal"]
         ),
+        .testTarget(name: "AllwardPlatformMASTests", dependencies: ["AllwardPlatformMAS"]),
         .testTarget(name: "AllwardSSHTests", dependencies: ["AllwardSSH"]),
         .testTarget(name: "AllwardControlTests", dependencies: ["AllwardControl"]),
         .testTarget(name: "AllwardSpeechTests", dependencies: ["AllwardSpeech"]),

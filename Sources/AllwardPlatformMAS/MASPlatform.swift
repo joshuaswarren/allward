@@ -31,11 +31,18 @@ public struct MASPlatform: PlatformServices {
         nil
     }
 
-    /// A declared host only. The herdr executor becomes an SSH exec channel on the
-    /// Room's own connection in phase 4; until that lands, declaring a server
-    /// truthfully yields the no-adapter state rather than a process launch.
+    /// A declared host only, reached by an SSH exec channel on the connection the
+    /// Room already holds. Discovery is absent by design, so an undeclared Room
+    /// yields the valid no-adapter state rather than a guess.
     public func makeMultiplexerAdapter(host: HostAlias?) -> any MultiplexerAdapter {
-        NoMultiplexerAdapter()
+        guard let host else { return NoMultiplexerAdapter() }
+        // `.ssh` always: there is no local herdr in a sandboxed product, so an
+        // endpoint must never claim one.
+        let endpoint = HerdrEndpoint(host: host, executionSite: .ssh)
+        let executor = HerdrExecChannelExecutor(transport: RusshTransport(hosts: hosts))
+        return HerdrAdapter(
+            client: HerdrSocketClient(
+                endpoint: endpoint, executor: executor.executor(for: endpoint)))
     }
 
     /// Publishes the configured hosts an alias resolves against.

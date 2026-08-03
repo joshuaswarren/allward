@@ -23,6 +23,26 @@ public struct HerdrEndpoint: Hashable, Sendable {
             ["ssh", host.rawValue, "herdr"] + arguments
         }
     }
+
+    /// The command to run on the far side, with the transport prefix `argv(for:)`
+    /// added removed again.
+    ///
+    /// An executor that already holds a connection to `host` must not launch `ssh`
+    /// a second time, and a sandboxed product cannot launch it at all. Knowing how
+    /// to undo the prefix belongs to the type that added it, not to each executor.
+    /// Returns nil when `argv` is not the shape this endpoint produces, so a
+    /// mismatch fails loudly instead of executing something unintended.
+    public func remoteCommand(from argv: [String]) -> [String]? {
+        switch executionSite {
+        case .local:
+            return argv.first == "herdr" ? argv : nil
+        case .ssh:
+            guard argv.count >= 3, argv[0] == "ssh", argv[1] == host.rawValue else {
+                return nil
+            }
+            return Array(argv.dropFirst(2))
+        }
+    }
 }
 
 public enum HerdrSnapshotTrigger: String, Hashable, Sendable, CaseIterable {
