@@ -1,7 +1,7 @@
 # Plan: build the sandboxed MAS product
 
-Status: **phase 1 landed. Phase 2 is blocked on decision D-A.** Written
-2026-08-02.
+Status: **every phase has landed.** Phase 5 landed in part: OQ-14 stays open on a
+measurement that needs a real signing identity. Written 2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -224,85 +224,113 @@ meantime.
 - **Guards against:** shared code drifting further toward the Dev ID product
   while nothing checks.
 
-### Phase 2 - in-process SSH transport
+### Phase 2 - in-process SSH transport (landed)
 
-Replace the process-launching SSH implementation behind the existing
-`RemoteTransport` facade, keeping `AllwardSSH` the only module that knows the
-protocol. Remove its `AllwardLocalPTY` dependency.
+`rust/allward-ssh` runs the protocol behind the existing `RemoteTransport` facade,
+reached over one generated C ABI. `AllwardSSH` no longer depends on
+`AllwardLocalPTY`, which is the edge that made a MAS product impossible. PTY and
+exec channels both work: panes need the former, the herdr executor the latter.
 
-Both PTY channels and exec channels are required: panes need the former, the
-herdr executor needs the latter.
+- **Accepted when:** receipts 1 and 2 stop reporting `AllwardLocalPTY`. Both now
+  pass in full. Five live tests open sessions to a real `sshd` with a 4096-bit RSA
+  key, covering exec, a login shell with input and resize, a refused host key, and
+  an unconfigured alias.
+- **Not done:** the §5 lifecycle cells are a G1 gate with no harness yet, and this
+  phase did not build one. Endpoint forwarding is Developer-ID-only: it still works
+  by spawning `ssh -R`, so `SSHPortForwarding` moved to `AllwardPlatformDevID`
+  rather than being ported. That is a §5 facade capability MAS lacks.
 
-- **Accepts when:** every §5 SSH lifecycle cell passes against a real remote host
-  with unchanged goldens, and the dependency-graph receipt from phase 1 stops
-  reporting `AllwardLocalPTY`.
-- **Guards against:** B/C divergence, which §16 fails a build for.
+### Phase 3 - move platform code out of shared modules (landed)
 
-### Phase 3 - move platform code out of shared modules
+`PlatformServices` is declared in `AllwardControl`, and `AllwardPlatformDevID` and
+`AllwardPlatformMAS` supply it. Local PTY spawning, process-table herdr discovery,
+the process herdr executor, and the AF_UNIX control socket host are all in the
+Developer ID module.
 
-Introduce `AllwardPlatformDevID` and `AllwardPlatformMAS` behind protocols
-declared in shared code. Relocate local PTY spawning, the process-table herdr
-discovery, the process herdr executor, and the AF_UNIX control socket host into
-the Dev ID module. `AllwardChrome` keeps no direct reference to any of them.
+- **Accepted when:** the negative fixtures pass and `AllwardChrome` holds no
+  process launch or socket bind. Both hold, and Chrome joined the no-adapter
+  proof's core target list, which it could not before.
 
-- **Accepts when:** the negative compile fixtures pass, `AllwardChrome` contains
-  no process launch or socket bind, and the Dev ID product behaves identically to
-  today.
-- **Guards against:** the §2 shared-code prohibition being satisfied by comment
-  rather than by graph.
+### Phase 4 - herdr over an exec channel (landed)
 
-### Phase 4 - herdr over an exec channel
+`HerdrExecChannelExecutor` runs the same argv as an exec channel on the Room's own
+connection. `HerdrEndpoint.remoteCommand(from:)` removes the transport prefix that
+`argv(for:)` added, and refuses an argv of any other shape. The Developer ID
+product keeps its process executor untouched.
 
-Add the MAS executor: same `HerdrEndpoint` argv, executed as an SSH exec channel
-on the connection the Room already holds. Dev ID keeps its process executor.
-Per-Room adapter selection and the Settings and Board connect controls are
-unchanged.
+- **Accepted when:** a declared Room reaches its server with no process launched.
+  A live test runs a real command over a real exec channel.
+- **Not done:** no herdr server was available, so the test runs a command that
+  exists rather than `herdr list`. The channel is proven; the herdr protocol over
+  it is not.
 
-- **Accepts when:** a Room declared against a remote herdr server lists its
-  sessions in the MAS product with no process launched, and the Dev ID product is
-  unaffected.
-- **Guards against:** the adapter quietly becoming Dev-ID-only, which the §15
-  product matrix forbids.
+### Phase 5 - credentials and host trust (landed in part)
 
-### Phase 5 - credentials and host trust
+Keys live in the Keychain as `kSecAttrSynchronizable` items and sign through
+`SecKeyCreateSignature`, so the transport never holds key bytes. Host trust is
+durable, atomic, refuses a changed key, and reports the expected fingerprint.
 
-Implement the injected credential and host-trust stores for both products and
-close OQ-14 with its probe fixtures: import, unlock, use, rotation, deletion,
-host-key first use and mismatch, sandbox access, logs, and crash artifacts, with
-throwaway keys in both products.
+- **Accepted when:** a real server accepts a signature the credential store
+  produced. It does, with no `identityFile` configured, so authentication went
+  entirely through the signer.
+- **Not done:** OQ-14 stays open. Its matrix needs import, unlock, rotation,
+  deletion, log and crash-artifact inspection in both products, and the Keychain
+  half cannot be measured without a real signing identity. Signing over SSH fails
+  with `errSecInternalComponent` because the login keychain is locked; see
+  [evidence/SANDBOX.md](evidence/SANDBOX.md).
 
-- **Accepts when:** OQ-14's both-target receipts pass and no private-key material
-  appears in UI, config, logs, protocol messages, or crash artifacts.
+### Phase 6 - archive and validate (landed)
 
-### Phase 6 - archive and validate
+`scripts/make-mas-app.sh` produces the sandboxed archive with its entitlements and
+the linker map receipt 3 reads. All four receipts pass against the real archive.
+Submission remains deferred by decision 5.
 
-Produce the sandboxed archive with its entitlements, run the four receipts
-against the real archive rather than a build directory, and record the result.
-Submission remains deferred.
+- **Accepted when:** the sandboxed product launches direct SSH and proves no
+  reachable local-PTY path. It does. A differential symbol scan finds `_forkpty`,
+  `_bind`, `_listen`, `_accept`, `_execve`, and 296 `AllwardLocalPTY` symbols in
+  the Developer ID binary and none in the MAS one. The sandboxed build was also
+  photographed with a live remote session; the capture is not committed because it
+  shows a real host name, so reproduce it rather than trust it:
 
-- **Accepts when:** `G1-core-C` passes: the sandboxed product launches direct SSH
-  and all applicable UI, MCP, and speech paths, and proves no local-terminal offer
-  and no reachable `AllwardLocalPTY` or `AllwardLocalPublisherEndpoint` path.
+  ```sh
+  bash scripts/make-mas-app.sh
+  # add an SSH host to the container's allward.toml, with a key inside the
+  # container: the sandbox cannot read ~/.ssh, which is why decision 39 exists
+  .build/Allward-MAS.app/Contents/MacOS/Allward \
+      --capture "$HOME/Library/Containers/ai.allward.Allward.mas/Data/shot.png"
+  ```
+- **Not done:** `G1-core-C` is wider than this. MCP has no sandbox transport yet,
+  and the speech and full UI paths were not exercised in the sandboxed build. The
+  archive is also ad-hoc signed, so it is validated rather than distributable.
 
 ## 7. Verification
 
-Every phase runs on a macOS 26 machine:
+Every phase runs on a macOS 26 machine, with a Rust toolchain:
 
 ```sh
+bash scripts/build-rust.sh                    # SwiftPM cannot build Rust
 swift build
 swift test
 bash scripts/no-adapter-clean-build-test.sh
-python3 scripts/mas-isolation-receipts.py
+bash scripts/rust-header-drift.sh             # the C ABI header is generated
 python3 scripts/validate-publication.py
 ```
 
-The MAS receipts exit non-zero until phase 6, by design, so they are read rather
-than merely run. Phases 3 and onward are measured by which of them stop failing.
-Receipts 3 and 4 need a real archive:
+The isolation receipts need the real archive, and now pass against it:
 
 ```sh
+bash scripts/make-mas-app.sh
 python3 scripts/mas-isolation-receipts.py \
     --archive .build/Allward-MAS.app --linker-map .build/mas-maps
+```
+
+Run without `--archive` they still report receipts 1 and 2 truthfully and fail 3
+and 4 for want of an archive, which is the right answer to a question about a
+build directory. The live SSH tests skip unless a server is named:
+
+```sh
+ALLWARD_SSH_TEST_HOST=… ALLWARD_SSH_TEST_USER=… ALLWARD_SSH_TEST_KEY=… \
+    swift test --filter RusshTransportTests
 ```
 
 A phase is complete when its receipts say so, not when the code compiles.

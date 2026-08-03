@@ -52,6 +52,12 @@ typedef struct AllwardSSHConfig {
    * Keychain instead, which is why the library never requires key bytes.
    */
   const char *private_key_path;
+  /**
+   * The public half, in OpenSSH one-line form ("ssh-rsa AAAA..."), used with the
+   * `sign` callback. The server needs to know which identity is being offered;
+   * only the signature itself requires the private half.
+   */
+  const char *public_key_openssh;
   uint64_t connect_timeout_ms;
 } AllwardSSHConfig;
 
@@ -68,6 +74,21 @@ typedef struct AllwardSSHCallbacks {
   void (*on_exit)(void*, int32_t, bool);
   void (*on_error)(void*, const char*);
   bool (*verify_host_key)(void*, const char*, const char*, const uint8_t*, uintptr_t);
+  /**
+   * Signs `to_sign` with the private half of the configured public key, and
+   * writes an SSH signature blob to `out_signature`/`out_len`. Returns false to
+   * fail authentication.
+   *
+   * This is what decision 39 needs: the key lives in Security.framework or the
+   * Secure Enclave, and this library never sees its bytes. `algorithm` is the
+   * negotiated signature algorithm, so the caller knows whether to use SHA-256
+   * or SHA-512. The buffer must come from `allward_ssh_allocate` so Rust can
+   * free it.
+   *
+   * Null means this session authenticates from a key file instead, which is the
+   * Developer ID path.
+   */
+  bool (*sign)(void*, const char*, const uint8_t*, uintptr_t, uint8_t**, uintptr_t*);
 } AllwardSSHCallbacks;
 
 #ifdef __cplusplus
@@ -84,6 +105,23 @@ extern "C" {
  */
 struct AllwardSSHSession *allward_ssh_open(const struct AllwardSSHConfig *config,
                                            struct AllwardSSHCallbacks callbacks);
+
+/**
+ * Allocates a buffer the `sign` callback fills. Swift must use this rather than
+ * `malloc` so the allocator that frees it is the one that made it.
+ *
+ * # Safety
+ * The returned pointer is valid for `length` bytes, or null when `length` is zero.
+ */
+uint8_t *allward_ssh_allocate(uintptr_t length);
+
+/**
+ * Frees a buffer from `allward_ssh_allocate`.
+ *
+ * # Safety
+ * `pointer` and `length` must be exactly what `allward_ssh_allocate` returned.
+ */
+void allward_ssh_free_buffer(uint8_t *pointer, uintptr_t length);
 
 /**
  * Writes bytes to the far side. Returns false when the session has gone.

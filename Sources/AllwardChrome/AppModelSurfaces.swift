@@ -3,6 +3,7 @@ import AllwardControl
 import AllwardCore
 import AllwardDesign
 import AllwardMultiplexer
+import AllwardRemote
 import AllwardRenderer
 import AllwardRooms
 import AllwardSurfaces
@@ -395,14 +396,14 @@ extension AppModel {
             environment: [:]
         )
         let paneResult: ControlMutationResult
-        if requireLocalPane || roomAllowsLocalShell(room) {
+        if (requireLocalPane || roomAllowsLocalShell(room)), platformOffersLocalShell {
             paneResult = await control.createLocalPane(
                 target: Target(room: room.id),
                 generation: tabReceipt.generationAfter,
                 request: request,
                 idempotencyKey: surfaceMutationKey()
             )
-        } else if let host = configuredInitialHost(for: room) {
+        } else if let host = configuredInitialHost(for: room) ?? firstConfiguredHost() {
             paneResult = await control.createSSHPane(
                 target: Target(room: room.id),
                 generation: tabReceipt.generationAfter,
@@ -410,8 +411,15 @@ extension AppModel {
                 host: host,
                 idempotencyKey: surfaceMutationKey()
             )
-        } else {
+        } else if platformOffersLocalShell {
             lastActionMessage = "Local shells are disabled and no SSH host is configured."
+            return
+        } else {
+            // The remote-only product with nothing to connect to yet. This is an
+            // empty state, not an error: there is a real next action, and saying so
+            // beats a window that silently contains nothing.
+            lastActionMessage =
+                "Add an SSH host in Settings to open a session. This build is remote-only."
             return
         }
 
@@ -421,9 +429,23 @@ extension AppModel {
         await refreshTopology()
     }
 
+    /// Whether this product can open a local shell at all.
+    ///
+    /// A Room may ask for one and the product may not have one: the sandboxed build
+    /// links no local PTY. Asking the transports is asking the product what it can
+    /// actually do, rather than trusting configuration to know.
+    private var platformOffersLocalShell: Bool {
+        platform.transports.contains { $0.supports(RemoteDestination.localShell()) }
+    }
+
     private func roomAllowsLocalShell(_ room: Room) -> Bool {
         if case .local = room.defaults.destination { return true }
         return false
+    }
+
+    /// Any configured host, for a product that cannot fall back to a local shell.
+    private func firstConfiguredHost() -> HostAlias? {
+        platformOffersLocalShell ? nil : configuration.hosts.first?.alias
     }
 
     private func configuredInitialHost(for room: Room) -> HostAlias? {

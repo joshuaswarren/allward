@@ -6,13 +6,15 @@ what should happen, and how to report what does not.
 
 ## Build it yourself
 
-Requires macOS 26, Xcode 26, Swift 6.2 or newer.
+Requires macOS 26, Xcode 26, Swift 6.2 or newer, and a stable Rust
+toolchain: the SSH transport is Rust, and SwiftPM cannot build it.
 
 ```sh
 git clone https://github.com/joshuaswarren/allward
 cd allward
+bash scripts/build-rust.sh
 swift build
-swift test                          # 303 tests
+swift test                          # 321 tests
 CONFIG=release bash scripts/make-app.sh
 ditto .build/Allward.app /Applications/Allward.app
 ```
@@ -91,6 +93,29 @@ An [optional herdr adapter](evidence/HERDR.md) discovers panes from a
 herdr server. It is genuinely optional. `scripts/no-adapter-clean-build-test.sh`
 proves no core target links it.
 
+## The sandboxed build
+
+The Mac App Store product is remote-only and builds from the same source:
+
+```sh
+bash scripts/make-mas-app.sh
+```
+
+It has no local shell, and that is the point rather than a limitation. Add an
+SSH host before launching it or it will tell you to, because there is nothing
+else it can open. Its key must be somewhere it can read: a sandboxed app
+cannot read `~/.ssh`, so put the key inside its container or import it into
+the Keychain.
+
+The isolation claim is checked rather than asserted:
+
+```sh
+python3 scripts/mas-isolation-receipts.py \
+    --archive .build/Allward-MAS.app --linker-map .build/mas-maps
+```
+
+All four receipts pass. If one fails, that is a regression worth reporting.
+
 ## Capturing evidence
 
 Two harnesses exist so a defect can be shown rather than described.
@@ -123,9 +148,7 @@ Open an issue with the capture, the command that produced it, and what
 you expected instead. A PNG makes a layout or rendering report far easier
 to act on than a description.
 
-Known gaps, so you do not report them twice. There is no sandboxed Mac
-App Store build: the `allward-mas` product exists and deliberately refuses
-to launch, and `scripts/mas-isolation-receipts.py` reports exactly what
-still stands in its way. There is no pinned esctest or vttest conformance
-manifest. Nobody has run the flood and soak benchmarks in
-[SPEC.md](SPEC.md) §21.
+Known gaps, so you do not report them twice. There is no pinned esctest or
+vttest conformance manifest. Nobody has run the flood and soak benchmarks
+in [SPEC.md](SPEC.md) §21. The sandboxed build has no MCP transport yet,
+and endpoint forwarding works only in the Developer ID build.

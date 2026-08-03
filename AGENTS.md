@@ -35,32 +35,41 @@ the code into a rule.**
 
 ## What to do next
 
-[docs/MAS-PLAN.md](docs/MAS-PLAN.md) is the current plan. **Phase 1 has landed:**
-the `allward-mas` product exists, and `scripts/mas-isolation-receipts.py` emits
-the four link-negative receipts against `scripts/mas-isolation.json`. All four
-fail on purpose. Run them before you argue about the MAS graph, because they
-report it.
+[docs/MAS-PLAN.md](docs/MAS-PLAN.md) is complete. **Every phase has landed and all
+four isolation receipts pass against a real sandboxed archive.** Both products
+build from one revision: `allward` has a local shell, `allward-mas` is remote-only
+and holds no local PTY, no publisher listener, and no process launcher.
 
-**Both owner decisions are made**, so nothing is blocked. Decisions 39 and 40 in
-[docs/DECISIONS.md](docs/DECISIONS.md):
+Run this before you argue about the MAS graph, because it reports it:
 
-- **D-A** the SSH library is **`russh`**. Apache-2.0, RSA, and a `Signer` trait so
-  private keys stay inside Security.framework. First external dependency, and
-  first Rust. The seam is verified: it builds as a `staticlib` for
-  `aarch64-apple-darwin`, Swift calls it over a C ABI, and it adds no linked
-  library the MAS manifest does not already permit. Pin a **stable** toolchain.
-- **D-B** MAS credentials are **Keychain items marked `kSecAttrSynchronizable`**,
-  so keys sync over iCloud. The Secure Enclave cannot import an existing key and
-  forfeits sync, so it is an alternative for a fresh key, never an upgrade path.
+```sh
+bash scripts/make-mas-app.sh
+python3 scripts/mas-isolation-receipts.py \
+    --archive .build/Allward-MAS.app --linker-map .build/mas-maps
+```
 
-**Phase 3 is the best next work**, because it clears the most receipt findings and
-does not touch the new dependency: move local PTY spawning, the process-table
-herdr discovery, the process herdr executor, and the AF_UNIX control socket host
-out of shared modules and behind injected protocols. Receipts 1 and 2 name every
-offending edge and line. Phase 2 then replaces the transport itself, and
-`AllwardLocalPTY` stays reachable through `AllwardSSH` until it does.
+What the shape now is, so you do not undo it:
 
-Do not weaken a decision above to make a phase easier. Ask instead.
+- **`PlatformServices`** in `AllwardControl` is the seam. `AllwardPlatformDevID`
+  has the local shell, process-table discovery, and the AF_UNIX socket;
+  `AllwardPlatformMAS` has none of them. Shared code imports neither. Adding a
+  capability to `AllwardChrome` instead of a platform module is how this regresses.
+- **SSH is `russh`**, in `rust/allward-ssh`, behind a generated C ABI. Run
+  `scripts/build-rust.sh` before `swift build`, pin a **stable** toolchain, and
+  never hand-edit `Sources/CAllwardSSH/include/allward_ssh.h`:
+  `scripts/rust-header-drift.sh` regenerates and diffs it.
+- **Keys never leave Security.framework.** The transport asks the credential store
+  for a signature. Do not add a path that reads key bytes.
+- **Host trust is durable and refuses a changed key.** An in-memory pin re-trusts
+  on next launch, which is the attack it exists to notice.
+
+The open work is named in the plan's "Not done" bullets rather than here, so it
+stays next to the phase that owns it. The largest are OQ-14's credential matrix,
+which needs a real signing identity, MCP over a sandboxed transport, and endpoint
+forwarding, which is Developer-ID-only because it still spawns `ssh -R`.
+
+Do not weaken a decision in [docs/DECISIONS.md](docs/DECISIONS.md) to make work
+easier. Ask instead.
 
 ## Build and test
 
@@ -88,15 +97,23 @@ A green test run is not evidence that a feature works. Before claiming
 completion:
 
 ```sh
+bash scripts/build-rust.sh                    # SwiftPM cannot build Rust
 swift test
 bash scripts/no-adapter-clean-build-test.sh   # core must not link AllwardHerdr
-python3 scripts/mas-isolation-receipts.py     # MAS isolation; read it, do not
-                                              # expect it to pass before phase 6
+bash scripts/rust-header-drift.sh             # the C ABI header is generated
 python3 scripts/validate-publication.py       # public markdown
+bash scripts/make-mas-app.sh && python3 scripts/mas-isolation-receipts.py \
+    --archive .build/Allward-MAS.app --linker-map .build/mas-maps
 ```
 
-The MAS receipts exit non-zero by design. What matters is that they fail on
-fewer things than before your change, and never on something new.
+All four receipts pass today, so a failure is a regression and not a to-do. Read
+the failure rather than re-running it.
+
+One wart to know: the generated C header is produced on the build host, and
+`sync-to-mac.sh` copies this checkout **over** it. After changing an `extern "C"`
+signature, regenerate there and copy the header back here before syncing again, or
+the next sync reinstates the stale one and the Swift build fails on a missing
+symbol.
 
 Then exercise the real application. It photographs itself:
 
