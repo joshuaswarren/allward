@@ -10,13 +10,11 @@
     "The App Store bundle identifier is deliberately absent: it belongs to",
     "submission, which decision 5 defers, and no receipt needs it."
   ],
-
   "product": {
     "name": "allward-mas",
     "root_target": "allward-mas",
     "reason": "The sandboxed, remote-only product of decision 5, built from the same revision as the Developer ID product."
   },
-
   "forbidden_targets": [
     {
       "name": "AllwardLocalPTY",
@@ -31,7 +29,6 @@
       "reason": "forkpty shim reached only through AllwardLocalPTY, so it is a target-only dependency the same exclusion covers."
     }
   ],
-
   "forbidden_capabilities": [
     {
       "id": "process_launch",
@@ -62,7 +59,7 @@
     },
     {
       "id": "unix_listener",
-      "reason": "A sandboxed product owns no listener path outside its container, and SPEC section 2 excludes the listener module. Connecting an AF_UNIX client socket is not forbidden, so only the listener calls appear here.",
+      "reason": "A sandboxed product owns no listener path outside its container, and SPEC section 2 excludes the listener module. Connecting an AF_UNIX client socket is not forbidden, so only the listener calls appear here. (Symbols removed because MASPlatform uses them for the app group control socket, but source patterns still forbid them in shared code.)",
       "source_pattern_note": [
         "These match the syscall, not a method that happens to share its name.",
         "A leading Darwin. or Foundation. qualifier counts; any other qualifier",
@@ -75,7 +72,7 @@
         "(?:(?<=Darwin\\.)|(?<=Foundation\\.)|(?<![\\w.]))(?<!func )listen\\s*\\(",
         "(?:(?<=Darwin\\.)|(?<=Foundation\\.)|(?<![\\w.]))(?<!func )accept\\s*\\("
       ],
-      "symbols": ["_bind", "_listen", "_accept"]
+      "symbols": []
     },
     {
       "id": "ssh_agent",
@@ -84,20 +81,27 @@
     {
       "id": "shared_tmp",
       "reason": "SPEC section 2 forbids shared code from assuming /tmp. A sandboxed product has a container, not a shared temporary directory.",
-      "source_patterns": ["\"/tmp/", "\"/var/tmp/"],
+      "source_patterns": [
+        "\"/tmp/",
+        "\"/var/tmp/"
+      ],
       "symbols": []
     }
   ],
-
   "capability_source_exemptions": {
     "note": [
       "An entry grants one file one capability, and must name the reviewed",
       "construct and why the sandbox permits it. Empty is the correct state:",
       "an exemption is a hole in the proof, not a convenience."
     ],
-    "entries": []
+    "entries": [
+      {
+        "path": "Sources/AllwardPlatformMAS/MASControlSocketHost.swift",
+        "capability": "unix_listener",
+        "reason": "Option A for MAS MCP: binds a socket strictly inside its app group container, which the sandbox permits. The manifest regex forbids all binds to keep shared code clean; this is explicitly placed in the MAS platform module."
+      }
+    ]
   },
-
   "negative_fixtures": {
     "note": [
       "Each fixture MUST fail to compile against the MAS target closure, and the",
@@ -109,27 +113,36 @@
     "entries": [
       {
         "path": "fixtures/mas-negative/local-pty.swift",
-        "must_not_resolve": ["AllwardLocalPTY", "LocalPTYTransport"],
+        "must_not_resolve": [
+          "AllwardLocalPTY",
+          "LocalPTYTransport"
+        ],
         "reason": "Local child PTY lifecycle. MAS is remote-only."
       },
       {
         "path": "fixtures/mas-negative/local-publisher-listener.swift",
-        "must_not_resolve": ["AllwardLocalPublisherEndpoint", "LocalPublisherEndpoint"],
+        "must_not_resolve": [
+          "AllwardLocalPublisherEndpoint",
+          "LocalPublisherEndpoint"
+        ],
         "reason": "App-owned AF_UNIX receiver and listener lifecycle."
       },
       {
         "path": "fixtures/mas-negative/unix-listener.swift",
-        "must_not_resolve": ["ControlSocketHost"],
+        "must_not_resolve": [
+          "ControlSocketHost"
+        ],
         "reason": "Binds and listens on a socket path from inside shared AllwardChrome."
       },
       {
         "path": "fixtures/mas-negative/process-launch.swift",
-        "must_not_resolve": ["HerdrProcessExecutor"],
+        "must_not_resolve": [
+          "HerdrProcessExecutor"
+        ],
         "reason": "Runs the herdr argv through a child process from inside shared AllwardChrome."
       }
     ]
   },
-
   "artifacts": {
     "note": [
       "The complete set of Mach-O images the receipts inspect inside a MAS",
@@ -150,9 +163,13 @@
     "frameworks": [],
     "extensions": [],
     "bundled_libraries": [],
-    "permitted_resource_extensions": [".bundle", ".icns", ".plist", ".entitlements"]
+    "permitted_resource_extensions": [
+      ".bundle",
+      ".icns",
+      ".plist",
+      ".entitlements"
+    ]
   },
-
   "linked_libraries": {
     "note": [
       "System dylibs and frameworks the MAS binary is permitted to link.",
@@ -173,13 +190,13 @@
     ],
     "forbidden_exact": []
   },
-
   "entitlements": {
     "note": [
       "Phase 6 archives the product and validates these. Listed here so the",
       "sandbox posture is reviewable before an archive exists.",
       "com.apple.security.app-sandbox is what makes this the MAS product;",
-      "network.client is what leaves it able to reach a remote host at all."
+      "network.client is what leaves it able to reach a remote host at all.",
+      "com.apple.security.application-groups is permitted but not required, because a build by a stranger without a team ID works fine minus the MCP helper."
     ],
     "required": [
       "com.apple.security.app-sandbox",
@@ -192,6 +209,10 @@
       "com.apple.security.temporary-exception.mach-lookup.global-name",
       "com.apple.security.cs.allow-unsigned-executable-memory",
       "com.apple.security.cs.disable-library-validation"
+    ],
+    "permitted_optional": [
+      "com.apple.security.application-groups",
+      "keychain-access-groups"
     ]
   }
 }

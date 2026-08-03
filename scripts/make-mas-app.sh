@@ -19,7 +19,7 @@ BUNDLE_ID="ai.allward.Allward.mas"
 VERSION="$(sed -n 's/^allwardVersion = "\(.*\)"$/\1/p' "$ROOT/Sources/AllwardCore/Version.swift" 2>/dev/null || true)"
 VERSION="${VERSION:-0.1.0}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
-
+TEAM_ID="${ALLWARD_TEAM_ID:-}"
 # Same provenance source as the Developer ID bundle, so a commit shown in one
 # product's About panel means the same thing in the other's.
 eval "$(bash "$ROOT/scripts/build-info.sh")"
@@ -76,6 +76,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Allward uses the microphone only while you hold the dictation key, and only to turn your speech into text in the pane you locked.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Allward transcribes push-to-talk dictation on this device. Audio and transcripts never leave your Mac.</string>
+PLIST
+
+if [ -n "$TEAM_ID" ]; then
+    cat >> "$APP/Contents/Info.plist" <<PLIST
+    <key>AllwardAppGroup</key><string>$TEAM_ID.$BUNDLE_ID</string>
+PLIST
+fi
+
+cat >> "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
@@ -84,7 +93,7 @@ PLIST
 # able to reach a remote host at all. Nothing else is granted: no
 # network.server, because it owns no listener; no inherit, because it spawns
 # nothing; and no temporary exceptions.
-cat > "$APP/Contents/Resources/Allward-MAS.entitlements" <<'ENT'
+cat > "$APP/Contents/Resources/Allward-MAS.entitlements" <<ENT
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -93,6 +102,18 @@ cat > "$APP/Contents/Resources/Allward-MAS.entitlements" <<'ENT'
     <key>com.apple.security.network.client</key><true/>
     <key>com.apple.security.device.audio-input</key><true/>
     <key>com.apple.security.files.user-selected.read-only</key><true/>
+ENT
+
+if [ -n "$TEAM_ID" ]; then
+    cat >> "$APP/Contents/Resources/Allward-MAS.entitlements" <<ENT
+    <key>com.apple.security.application-groups</key>
+    <array><string>$TEAM_ID.$BUNDLE_ID</string></array>
+    <key>keychain-access-groups</key>
+    <array><string>$TEAM_ID.$BUNDLE_ID</string></array>
+ENT
+fi
+
+cat >> "$APP/Contents/Resources/Allward-MAS.entitlements" <<ENT
 </dict>
 </plist>
 ENT

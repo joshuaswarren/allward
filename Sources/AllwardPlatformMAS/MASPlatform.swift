@@ -37,13 +37,27 @@ public struct MASPlatform: PlatformServices {
         [RusshTransport(hosts: hosts, hostTrust: hostTrust, credentials: credentials)]
     }
 
-    /// None. A sandboxed product owns no listener path outside its container, and
-    /// SPEC §2 keeps the listener module out of this graph. MCP reaches MAS over
-    /// the connection the Room already holds, which is phase 4 work.
+    /// Starts the control socket inside the App Group container, if one is
+    /// configured.
+    ///
+    /// Option A for sandboxed MCP. `allward-mcp` is spawned by the client outside
+    /// the sandbox, so it can reach the group container; the app binds the socket
+    /// inside it, avoiding the need for `inherit` on a bundled helper. If the
+    /// build carries no App Group (e.g. built by a stranger without a team ID),
+    /// this returns nil and the product degrades gracefully to no MCP.
     public func startControlSocket(
         handler: any ControlRequestHandling
     ) throws -> (any ControlSocketServing)? {
-        nil
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "AllwardAppGroup") as? String,
+              !group.isEmpty else {
+            return nil
+        }
+        let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
+        guard let container = url else { return nil }
+        let path = container.appendingPathComponent("app.sock").path
+        let host = MASControlSocketHost()
+        try host.start(handler: handler, at: path)
+        return host
     }
 
     /// A declared host only, reached by an SSH exec channel on the connection the

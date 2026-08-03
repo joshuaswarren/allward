@@ -14,8 +14,8 @@ import Foundation
 // binary's graph.
 //
 // `AllwardPlatformMAS` is what makes this the sandboxed build. It offers direct SSH
-// and nothing else: no local shell, no control-socket listener, and no
-// process-table discovery, so a Room's server is declared rather than found.
+// and nothing else: no local shell, no process-table discovery, and a control
+// socket that binds strictly inside an app group container rather than /tmp.
 
 // Same as the Developer ID product: `--version` reports the build without opening
 // a window, which is how a synced test build gets checked over ssh.

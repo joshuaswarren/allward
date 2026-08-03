@@ -168,9 +168,21 @@ struct AllwardMCPExecutable {
     }
 
     private static func defaultSocketPath() -> String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Allward/run/app.sock")
-            .path
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let devID = home.appendingPathComponent("Library/Application Support/Allward/run/app.sock").path
+        if FileManager.default.fileExists(atPath: devID) { return devID }
+
+        // The MAS product binds its socket in an App Group container to comply with
+        // App Sandbox. The path includes the Team ID, which this binary does not
+        // know, so it checks for any matching group container.
+        let groups = home.appendingPathComponent("Library/Group Containers")
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: groups.path) {
+            for item in contents where item.hasSuffix(".ai.allward.Allward") {
+                let mas = groups.appendingPathComponent(item).appendingPathComponent("app.sock").path
+                if FileManager.default.fileExists(atPath: mas) { return mas }
+            }
+        }
+        return devID
     }
 
     private static func writeStandardError(_ message: String) {
