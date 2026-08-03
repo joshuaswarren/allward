@@ -125,12 +125,15 @@ with a test that fails without it.
   with the reason. A tenth pass is not rigor. Hard cap: four fix rounds per
   PR (a round is one batched fix commit pushed after all reviewer bots have
   finished with the current head). At the cap, decline every remaining
-  non-critical thread in-thread with a reason, resolve it, file one GitHub issue
+  non-critical thread in-thread with a reason, resolve it, file ONE GitHub issue
   listing the declined items with links, and merge once required checks are
-  green. The issue is the escalation — do not park the PR. Critical findings
-  (correctness, security, or data integrity) stay actionable at any round; the
-  cap never ships a real defect. Doc-only diffs (`*.md` only) get one fix round;
-  after it, only factual errors are actionable.
+  green and no critical finding or reliability regression remains. The issue
+  is the escalation — do not park the PR. Critical findings (correctness,
+  security, or data integrity) and reliability regressions stay actionable at
+  any round and take precedence over the cap; resolve them before merging,
+  even after the fourth round. The cap never ships a real defect. Doc-only
+  diffs (`*.md` only) get one fix round; after it, only factual errors are
+  actionable, and those exceptions do not reopen general review.
 
 `.claude/napkin.md` collects specific corrections from earlier sessions. Read it,
 and add to it when you get something wrong.
