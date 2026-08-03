@@ -180,6 +180,41 @@ if addStatus == errSecSuccess {
     record("keychain add and read", .denied, "SecItemAdd status \(addStatus)")
 }
 
+// 7b. The same round trip with `kSecAttrSynchronizable`, which is the attribute
+//     decision 39 actually rests on. It is probed separately because it needs the
+//     data-protection keychain, and that is a different permission from ordinary
+//     keychain access: 7 can pass while this fails.
+let syncService = "ai.allward.sandbox-probe.sync"
+let syncQuery: [String: Any] = [
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: syncService,
+    kSecAttrAccount as String: "probe",
+    kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+    kSecUseDataProtectionKeychain as String: true,
+]
+var syncAdd = syncQuery
+syncAdd[kSecValueData as String] = secret
+SecItemDelete(syncQuery as CFDictionary)
+let syncStatus = SecItemAdd(syncAdd as CFDictionary, nil)
+if syncStatus == errSecSuccess {
+    var item: CFTypeRef?
+    var read = syncQuery
+    read[kSecReturnData as String] = true
+    let readStatus = SecItemCopyMatching(read as CFDictionary, &item)
+    let matched = (item as? Data) == secret
+    record(
+        "keychain synchronizable (iCloud)",
+        readStatus == errSecSuccess && matched ? .permitted : .denied,
+        "add ok, read status \(readStatus), value matched \(matched)"
+    )
+    SecItemDelete(syncQuery as CFDictionary)
+} else {
+    let message = SecCopyErrorMessageString(syncStatus, nil) as String? ?? "?"
+    record(
+        "keychain synchronizable (iCloud)", .denied,
+        "SecItemAdd status \(syncStatus): \(message)")
+}
+
 // 8. Outgoing TCP, which com.apple.security.network.client is supposed to allow.
 //    A refused connection still proves the syscall was permitted; the sandbox
 //    denies with EPERM instead, so the two are distinguishable.

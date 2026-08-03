@@ -14,9 +14,10 @@ products. Phase 5 owns that.
 ## Sandbox capabilities
 
 Reproduce with `bash fixtures/mas-sandbox-probe/run.sh`. It assembles a minimal
-bundle, signs it ad hoc with `com.apple.security.app-sandbox` and
-`com.apple.security.network.client`, and runs the probe inside it. Measured on
-macOS 26.5.2 (build 25F84), Apple silicon, 2026-08-02:
+bundle, signs it, and runs the probe inside it. Ad-hoc signing measures everything
+except the Keychain rows: those need a real identity, so pass one with
+`ALLWARD_PROBE_IDENTITY`. Measured on macOS 26.5.2 (build 25F84), Apple silicon,
+2026-08-02, signed with an Apple Development identity:
 
 | Probe | Verdict | Detail |
 |---|---|---|
@@ -28,7 +29,8 @@ macOS 26.5.2 (build 25F84), Apple silicon, 2026-08-02:
 | write `/tmp` | **denied** | `EPERM` |
 | launch `/usr/bin/ssh` | **permitted** | exited 0 |
 | child reads `~/.ssh/config` | **denied** | child inherited the sandbox |
-| Keychain add and read | inconclusive | `SecItemAdd` returned `-25308` under ad-hoc signing |
+| Keychain add and read | **permitted** | round-tripped, value matched |
+| Keychain synchronizable (iCloud) | not yet run | added after the run above |
 | outgoing TCP | permitted | connected to loopback 22 |
 
 ### What this settles
@@ -44,16 +46,18 @@ not resolve and prior host-key pinning is invisible.
 **SPEC §2's `/tmp` prohibition is empirical.** A sandboxed product has a
 container, and `/tmp` is not writable.
 
-**Keychain is unproven, not disproven.** `-25308` is
-`errSecInteractionNotAllowed`, and the probe is signed ad hoc with no team
-identifier, so it cannot reach its own keychain access group. This is the one
-measurement on this page that has not been taken.
+**Keychain access works in a signed sandboxed app.** A signed build added an item
+and read it back with the value matching. That closes the question the ad-hoc runs
+could not answer: the earlier `-25308`, `errSecInteractionNotAllowed`, was the
+absence of a team identifier rather than a sandbox prohibition, so decision 39's
+premise holds.
 
-Taking it needs a real signing identity, and that is where it stops. Signing with
-one over SSH fails with `errSecInternalComponent`, because the login keychain is
-locked in a non-interactive session and `security show-keychain-info` reports
-"User interaction is not allowed". The signing key cannot be read without the
-keychain password. Whoever holds it can close this in one command:
+The signing identity is the whole cost of that row, and it cannot be paid from a
+non-interactive session. `codesign` over SSH fails with `errSecInternalComponent`
+even after the login keychain is unlocked, because the private key's ACL needs
+interactive authorisation that an SSH session has no way to present. Unlocking a
+keychain is not the same as authorising a tool to use a key in it. So the Keychain
+rows are measured by running this in a desktop terminal:
 
 ```sh
 security unlock-keychain ~/Library/Keychains/login.keychain-db
@@ -62,6 +66,13 @@ ALLWARD_PROBE_IDENTITY="Apple Development: ..." bash fixtures/mas-sandbox-probe/
 
 `run.sh` prints that instruction itself when signing fails, so the next person
 does not have to rediscover it.
+
+**The `kSecAttrSynchronizable` row is separate and still unrun.** Ordinary keychain
+access and the data-protection keychain that carries synchronizable items are
+different permissions, so the passing row above does not settle it. The probe now
+covers it, added after the run that produced this table; the next signed run fills
+it in. Until then, iCloud syncing of a key is designed for and documented but not
+measured.
 
 ### The correction this forced
 

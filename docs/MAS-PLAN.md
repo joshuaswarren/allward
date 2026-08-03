@@ -2,8 +2,8 @@
 
 Status: **every phase has landed.** Two residuals remain, each named next to the
 phase that owns it: reverse port forwarding is half ported, and OQ-14's
-`kSecAttrSynchronizable` attribute needs a signing identity that a non-interactive
-session cannot reach. Written 2026-08-02.
+`kSecAttrSynchronizable` row needs one more signed probe run, which only a desktop
+terminal can do. Written 2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -300,14 +300,20 @@ durable, atomic, refuses a changed key, and reports the expected fingerprint.
   real leak: a private key pasted into `identity-file` was written back to
   `allward.toml`, since Allward rewrites that file itself. Configuration now refuses
   it at load.
-- **Not done:** one attribute. `kSecAttrSynchronizable`, the iCloud path, cannot be
-  exercised without a signed entitled build, and signing is still unavailable: a
-  non-interactive session answers `errSecInteractionNotAllowed` for the login
-  keychain and `errSecMissingEntitlement` for the data-protection keychain, both
-  measured. Unlocking the login keychain in a desktop session does not reach an ssh
-  session, so `codesign` still fails with `errSecInternalComponent`. The lifecycle
-  probes therefore run against a keychain the test creates, which cannot hold
-  synchronizable items. See [evidence/SANDBOX.md](evidence/SANDBOX.md).
+- **Now measured:** Keychain access works in a signed sandboxed build. A signed
+  probe added an item and read it back with the value matching, so the earlier
+  `errSecInteractionNotAllowed` was the missing team identifier and not a sandbox
+  prohibition. Decision 39's premise holds.
+- **Not done:** one attribute. `kSecAttrSynchronizable` is a different permission
+  from ordinary keychain access, since it needs the data-protection keychain, so the
+  passing row above does not settle it. The probe now covers it and the next signed
+  run fills it in. It cannot be run from an ssh session: `codesign` fails with
+  `errSecInternalComponent` even after the login keychain is unlocked, because the
+  key's ACL needs interactive authorisation. Unlocking a keychain is not the same as
+  authorising a tool to use a key in it. Until that row is filled, iCloud syncing is
+  designed for and documented but not measured. The lifecycle probes run against a
+  keychain the test creates, which cannot hold synchronizable items.
+  See [evidence/SANDBOX.md](evidence/SANDBOX.md).
 
 ### Phase 6 - archive and validate (landed)
 
