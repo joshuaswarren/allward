@@ -514,7 +514,14 @@ pub unsafe extern "C" fn allward_ssh_free_buffer(pointer: *mut u8, length: usize
     }
     drop(Vec::from_raw_parts(pointer, length, length));
 }
-
+fn allocate_stream(next_stream: &mut u64) -> Option<u64> {
+    let stream = *next_stream;
+    if stream == 0 {
+        return None;
+    }
+    *next_stream = next_stream.checked_add(1).unwrap_or(0);
+    Some(stream)
+}
 fn spawn_forward_reader(
     mut reader: ChannelReadHalf,
     stream: u64,
@@ -637,14 +644,14 @@ async fn run_session(
                             .channel_open_direct_tcpip(host, port as u32, "127.0.0.1", 0)
                             .await
                             .map_err(|error| format!("{error}"))
-                            .map(|channel| {
-                                let stream = next_stream;
-                                next_stream = next_stream.saturating_add(1).max(1);
+                            .and_then(|channel| {
+                                let stream = allocate_stream(&mut next_stream)
+                                    .ok_or_else(|| "stream id space exhausted".to_owned())?;
                                 let (reader, writer) = channel.split();
                                 forward_streams.insert(stream, writer);
                                 spawn_forward_reader(reader, stream, forward_sender.clone());
                                 callbacks.forward_open(stream, "127.0.0.1", 0);
-                                stream
+                                Ok(stream)
                             });
                         let _ = reply.send(result);
                     }
@@ -670,12 +677,19 @@ async fn run_session(
             event = forward_events.recv() => {
                 match event {
                     Some(ForwardEvent::Opened { channel, origin_host, origin_port }) => {
-                        let stream = next_stream;
-                        next_stream = next_stream.saturating_add(1).max(1);
+                        let Some(stream) = allocate_stream(&mut next_stream) else {
+                            let (_, writer) = channel.split();
+                            let _ = writer.close().await;
+                            continue;
+                        };
                         let (reader, writer) = channel.split();
                         forward_streams.insert(stream, writer);
                         spawn_forward_reader(reader, stream, forward_sender.clone());
-                        callbacks.forward_open(stream, &origin_host, origin_port.min(u32::from(u16::MAX)) as u16);
+                        callbacks.forward_open(
+                            stream,
+                            &origin_host,
+                            origin_port.min(u32::from(u16::MAX)) as u16,
+                        );
                     }
                     Some(ForwardEvent::Data { stream, bytes }) => {
                         if forward_streams.contains_key(&stream) {

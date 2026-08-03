@@ -1,7 +1,9 @@
 # Plan: build the sandboxed MAS product
 
-Status: **every phase has landed.** Phase 5 landed in part: OQ-14 stays open on a
-measurement that needs a real signing identity. Written 2026-08-02.
+Status: **every phase has landed.** Two residuals remain, each named next to the
+phase that owns it: reverse port forwarding is half ported, and OQ-14's
+`kSecAttrSynchronizable` attribute needs a signing identity that a non-interactive
+session cannot reach. Written 2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -235,10 +237,23 @@ exec channels both work: panes need the former, the herdr executor the latter.
   pass in full. Five live tests open sessions to a real `sshd` with a 4096-bit RSA
   key, covering exec, a login shell with input and resize, a refused host key, and
   an unconfigured alias.
-- **Not done:** the §5 lifecycle cells are a G1 gate with no harness yet, and this
-  phase did not build one. Endpoint forwarding is Developer-ID-only: it still works
-  by spawning `ssh -R`, so `SSHPortForwarding` moved to `AllwardPlatformDevID`
-  rather than being ported. That is a §5 facade capability MAS lacks.
+- **Now done:** the §5 lifecycle harness exists.
+  `scripts/ssh-lifecycle-receipt.sh` reports nine cells passing against a real
+  server (connect, authenticate, live remote PTY, control, exit code, trust,
+  cancel, close, disconnect) and names the three it cannot reach. Building it found
+  a real defect: an in-flight open ignored cancellation, so a cancelled pane left a
+  handshake running. `RusshChannel` now closes and reports `.cancelled`.
+- **Not done:** endpoint forwarding is half ported. Direct-tcpip (local) forwarding
+  works over russh and has a live test. Reverse forwarding does not: the server
+  accepts `tcpip_forward` and establishes the listener, but
+  `server_channel_open_forwarded_tcpip` is never reached when a connection arrives,
+  so no stream is delivered. The override matches the trait signature exactly, so it
+  is a real override rather than a silently-inherent method, and the cause is
+  unidentified. `Tests/AllwardSSHTests/RusshForwardingTests.swift` keeps the
+  reproduction, skipped so it cannot hang a suite; remove the skip to work on it.
+  Until it passes, `SSHPortForwarding` stays in `AllwardPlatformDevID` spawning
+  `ssh -R`, so reverse forwarding is a §5 facade capability MAS still lacks, and
+  `CELL forward` stays skipped.
 
 ### Phase 3 - move platform code out of shared modules (landed)
 
@@ -260,9 +275,11 @@ product keeps its process executor untouched.
 
 - **Accepted when:** a declared Room reaches its server with no process launched.
   A live test runs a real command over a real exec channel.
-- **Not done:** no herdr server was available, so the test runs a command that
-  exists rather than `herdr list`. The channel is proven; the herdr protocol over
-  it is not.
+- **Now done:** the herdr protocol itself is proven against a real herdr server,
+  not a stub. A live test decodes a session snapshot and an agent list through the
+  exec channel; the server reports version 0.7.5 and protocol 17, which is exactly
+  what the client demands, so there is no version drift. A stub was written first
+  and rejected: it would only have proven that the fake agreed with the client.
 
 ### Phase 5 - credentials and host trust (landed in part)
 
@@ -273,11 +290,24 @@ durable, atomic, refuses a changed key, and reports the expected fingerprint.
 - **Accepted when:** a real server accepts a signature the credential store
   produced. It does, with no `identityFile` configured, so authentication went
   entirely through the signer.
-- **Not done:** OQ-14 stays open. Its matrix needs import, unlock, rotation,
-  deletion, log and crash-artifact inspection in both products, and the Keychain
-  half cannot be measured without a real signing identity. Signing over SSH fails
-  with `errSecInternalComponent` because the login keychain is locked; see
-  [evidence/SANDBOX.md](evidence/SANDBOX.md).
+- **Now done:** the credential lifecycle is measured against a real Keychain, not a
+  double. Import, use, rotation, deletion, per-host scoping, and service-namespace
+  isolation all pass: a stored key is read back and signs, a rotation changes which
+  key is offered and reaches storage, and a deletion makes signing fail rather than
+  fall back. Artifact hygiene is measured too, by
+  `scripts/credential-hygiene-receipt.sh`: no key material in diagnostics, in files
+  Allward writes, or embedded in a built binary. That work also found and fixed a
+  real leak: a private key pasted into `identity-file` was written back to
+  `allward.toml`, since Allward rewrites that file itself. Configuration now refuses
+  it at load.
+- **Not done:** one attribute. `kSecAttrSynchronizable`, the iCloud path, cannot be
+  exercised without a signed entitled build, and signing is still unavailable: a
+  non-interactive session answers `errSecInteractionNotAllowed` for the login
+  keychain and `errSecMissingEntitlement` for the data-protection keychain, both
+  measured. Unlocking the login keychain in a desktop session does not reach an ssh
+  session, so `codesign` still fails with `errSecInternalComponent`. The lifecycle
+  probes therefore run against a keychain the test creates, which cannot hold
+  synchronizable items. See [evidence/SANDBOX.md](evidence/SANDBOX.md).
 
 ### Phase 6 - archive and validate (landed)
 

@@ -40,3 +40,6 @@
   through `scripts/sync-to-mac.sh` and run Swift on the build host, never here.
   (An earlier note said Swift was "prohibited" - that was one subagent's
   instruction while the orchestrator owned the shared build dir, not a repo rule.)
+
+| 2026-08-03 | self | Live reverse-forward test used a temporary-directory UNIX socket path longer than sockaddr_un allows | Keep test UNIX socket paths under /tmp with a short unique basename |
+| 2026-08-03 | self | Reverse forwarding accepted tcpip_forward but the live forwarded connection never reached Handler callback; test hung waiting for receiver | Bound the live test and investigate russh forwarded-channel dispatch before deleting the old forwarder |

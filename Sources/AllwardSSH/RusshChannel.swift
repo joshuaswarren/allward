@@ -10,6 +10,10 @@ import Foundation
 /// also why `context` is an unmanaged pointer to this object: it has to survive
 /// until Rust is finished with it, and ARC cannot see across the ABI.
 final class RusshChannel: RemoteChannel, @unchecked Sendable {
+    typealias ForwardOpenHandler = @Sendable (UInt64, String, UInt16) -> Void
+    typealias ForwardDataHandler = @Sendable (UInt64, UnsafePointer<UInt8>?, UInt) -> Void
+    typealias ForwardCloseHandler = @Sendable (UInt64) -> Void
+
     let id = ConnectionID()
     let destination: RemoteDestination
     let events: AsyncStream<RemoteEvent>
@@ -18,6 +22,9 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
     private let hostTrust: any SSHHostTrust
     private let credentials: (any SSHCredentialStore)?
     private let host: HostAlias
+    private let forwardOpen: ForwardOpenHandler?
+    private let forwardData: ForwardDataHandler?
+    private let forwardClose: ForwardCloseHandler?
     private let lock = NSLock()
     private var session: OpaquePointer?
     /// Retained until Rust stops calling back, then released exactly once.
@@ -29,26 +36,32 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
         destination: RemoteDestination,
         host: HostAlias,
         hostTrust: any SSHHostTrust,
-        credentials: (any SSHCredentialStore)?
+        credentials: (any SSHCredentialStore)?,
+        forwardOpen: ForwardOpenHandler? = nil,
+        forwardData: ForwardDataHandler? = nil,
+        forwardClose: ForwardCloseHandler? = nil
     ) {
         self.destination = destination
         self.host = host
         self.hostTrust = hostTrust
         self.credentials = credentials
+        self.forwardOpen = forwardOpen
+        self.forwardData = forwardData
+        self.forwardClose = forwardClose
         var escaped: AsyncStream<RemoteEvent>.Continuation!
-        // Bounded and newest-dropping: a flood must not grow an unbounded queue,
-        // and SPEC §21 puts a 2M-line flood inside a second.
         events = AsyncStream(bufferingPolicy: .bufferingNewest(4096)) { escaped = $0 }
         continuation = escaped
     }
-
     static func open(
         destination: RemoteDestination,
         host: RemoteHost,
         geometry: (columns: Int, rows: Int),
         bound: AttemptBound,
         hostTrust: any SSHHostTrust,
-        credentials: (any SSHCredentialStore)?
+        credentials: (any SSHCredentialStore)?,
+        forwardOpen: ForwardOpenHandler? = nil,
+        forwardData: ForwardDataHandler? = nil,
+        forwardClose: ForwardCloseHandler? = nil
     ) async throws -> RusshChannel {
         guard let alias = destination.host else {
             throw AllwardError(
@@ -61,7 +74,8 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
         }
         let channel = RusshChannel(
             destination: destination, host: alias, hostTrust: hostTrust,
-            credentials: credentials)
+            credentials: credentials, forwardOpen: forwardOpen,
+            forwardData: forwardData, forwardClose: forwardClose)
         try await channel.start(host: host, geometry: geometry, bound: bound)
         return channel
     }
@@ -95,6 +109,23 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
                 RusshChannel.from(context).verify(
                     algorithm: algorithm, fingerprint: fingerprint, blob: blob, length: length)
             },
+            on_forward_open: forwardOpen == nil
+                ? nil
+                : { context, stream, origin, port in
+                    RusshChannel.from(context).handle(
+                        forwardOpen: stream, origin: origin, port: port)
+                },
+            on_forward_data: forwardData == nil
+                ? nil
+                : { context, stream, bytes, length in
+                    RusshChannel.from(context).handle(
+                        forwardData: stream, bytes: bytes, length: length)
+                },
+            on_forward_close: forwardClose == nil
+                ? nil
+                : { context, stream in
+                    RusshChannel.from(context).handle(forwardClose: stream)
+                },
             // Present only when a credential store exists. Null tells Rust to
             // authenticate from the key file instead, which keeps the two paths one
             // decision rather than a runtime branch inside the protocol.
@@ -235,6 +266,27 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
         settle(with: failure)
     }
 
+    private func handle(
+        forwardOpen stream: UInt64,
+        origin: UnsafePointer<CChar>?,
+        port: UInt16
+    ) {
+        let host = origin.map { String(cString: $0) } ?? ""
+        forwardOpen?(stream, host, port)
+    }
+
+    private func handle(
+        forwardData stream: UInt64,
+        bytes: UnsafePointer<UInt8>?,
+        length: UInt
+    ) {
+        forwardData?(stream, bytes, length)
+    }
+
+    private func handle(forwardClose stream: UInt64) {
+        forwardClose?(stream)
+    }
+
     /// Signs the handshake challenge through the credential store, so the key never
     /// crosses the ABI. The buffer is allocated by Rust's allocator because Rust is
     /// what frees it.
@@ -313,6 +365,52 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
         lock.unlock()
         guard let handle else { return }
         _ = allward_ssh_close(handle)
+    }
+
+    func forwardRemoteOpen(host: String, port: UInt16) -> Bool {
+        lock.lock()
+        let handle = session
+        lock.unlock()
+        guard let handle else { return false }
+        return host.withCString {
+            allward_ssh_forward_remote_open(handle, $0, port)
+        }
+    }
+
+    func forwardRemoteClose(host: String, port: UInt16) -> Bool {
+        lock.lock()
+        let handle = session
+        lock.unlock()
+        guard let handle else { return false }
+        return host.withCString {
+            allward_ssh_forward_remote_close(handle, $0, port)
+        }
+    }
+
+    func forwardLocalOpen(host: String, port: UInt16) -> UInt64 {
+        lock.lock()
+        let handle = session
+        lock.unlock()
+        guard let handle else { return 0 }
+        return host.withCString {
+            allward_ssh_forward_local_open(handle, $0, port)
+        }
+    }
+
+    func forwardWrite(stream: UInt64, bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+        lock.lock()
+        let handle = session
+        lock.unlock()
+        guard let handle else { return false }
+        return allward_ssh_forward_write(handle, stream, bytes.baseAddress, UInt(bytes.count))
+    }
+
+    func forwardClose(stream: UInt64) -> Bool {
+        lock.lock()
+        let handle = session
+        lock.unlock()
+        guard let handle else { return false }
+        return allward_ssh_forward_close(handle, stream)
     }
 
     // MARK: - Lifecycle

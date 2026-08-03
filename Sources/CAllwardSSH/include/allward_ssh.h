@@ -64,8 +64,6 @@ typedef struct AllwardSSHConfig {
 /**
  * Callbacks into Swift. `context` is passed back verbatim to every one.
  *
- * `verify_host_key` returning false rejects the connection, which is how
- * first-use trust and a fingerprint mismatch both reach the user.
  */
 typedef struct AllwardSSHCallbacks {
   void *context;
@@ -74,19 +72,13 @@ typedef struct AllwardSSHCallbacks {
   void (*on_exit)(void*, int32_t, bool);
   void (*on_error)(void*, const char*);
   bool (*verify_host_key)(void*, const char*, const char*, const uint8_t*, uintptr_t);
+  void (*on_forward_open)(void*, uint64_t, const char*, uint16_t);
+  void (*on_forward_data)(void*, uint64_t, const uint8_t*, uintptr_t);
+  void (*on_forward_close)(void*, uint64_t);
   /**
    * Signs `to_sign` with the private half of the configured public key, and
    * writes an SSH signature blob to `out_signature`/`out_len`. Returns false to
    * fail authentication.
-   *
-   * This is what decision 39 needs: the key lives in Security.framework or the
-   * Secure Enclave, and this library never sees its bytes. `algorithm` is the
-   * negotiated signature algorithm, so the caller knows whether to use SHA-256
-   * or SHA-512. The buffer must come from `allward_ssh_allocate` so Rust can
-   * free it.
-   *
-   * Null means this session authenticates from a key file instead, which is the
-   * Developer ID path.
    */
   bool (*sign)(void*, const char*, const uint8_t*, uintptr_t, uint8_t**, uintptr_t*);
 } AllwardSSHCallbacks;
@@ -130,6 +122,61 @@ void allward_ssh_free_buffer(uint8_t *pointer, uintptr_t length);
  * `session` must be a handle from `allward_ssh_open` that has not been freed.
  */
 bool allward_ssh_write(struct AllwardSSHSession *session, const uint8_t *bytes, uintptr_t len);
+
+/**
+ * Asks the server to listen on a TCP address and forward new connections to
+ * this client.
+ *
+ * # Safety
+ * `session` must be live and `bind_host` must be a valid NUL-terminated UTF-8
+ * string.
+ */
+bool allward_ssh_forward_remote_open(struct AllwardSSHSession *session,
+                                     const char *bind_host,
+                                     uint16_t bind_port);
+
+/**
+ * Cancels a TCP address the server was asked to listen on.
+ *
+ * # Safety
+ * `session` must be live and `bind_host` must be a valid NUL-terminated UTF-8
+ * string.
+ */
+bool allward_ssh_forward_remote_close(struct AllwardSSHSession *session,
+                                      const char *bind_host,
+                                      uint16_t bind_port);
+
+/**
+ * Opens a direct-tcpip channel through the server.
+ *
+ * Returns a non-zero stream id, or zero when the channel could not be opened.
+ *
+ * # Safety
+ * `session` must be live and `target_host` must be a valid NUL-terminated UTF-8
+ * string.
+ */
+uint64_t allward_ssh_forward_local_open(struct AllwardSSHSession *session,
+                                        const char *target_host,
+                                        uint16_t target_port);
+
+/**
+ * Writes bytes to a direct-tcpip or reverse-forward stream.
+ *
+ * # Safety
+ * `session` must be live, and `bytes` must be valid for `len` bytes.
+ */
+bool allward_ssh_forward_write(struct AllwardSSHSession *session,
+                               uint64_t stream,
+                               const uint8_t *bytes,
+                               uintptr_t len);
+
+/**
+ * Closes a direct-tcpip or reverse-forward stream.
+ *
+ * # Safety
+ * `session` must be live.
+ */
+bool allward_ssh_forward_close(struct AllwardSSHSession *session, uint64_t stream);
 
 /**
  * Publishes a new PTY window size.
