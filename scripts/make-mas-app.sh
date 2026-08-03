@@ -20,6 +20,10 @@ VERSION="$(sed -n 's/^allwardVersion = "\(.*\)"$/\1/p' "$ROOT/Sources/AllwardCor
 VERSION="${VERSION:-0.1.0}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 
+# Same provenance source as the Developer ID bundle, so a commit shown in one
+# product's About panel means the same thing in the other's.
+eval "$(bash "$ROOT/scripts/build-info.sh")"
+
 bash "$ROOT/scripts/build-rust.sh"
 
 mkdir -p "$MAPS"
@@ -59,6 +63,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleIconFile</key><string>Allward</string>
+    <key>AllwardBuildCommit</key><string>$ALLWARD_BUILD_COMMIT</string>
+    <key>AllwardBuildDirty</key><string>$ALLWARD_BUILD_DIRTY</string>
+    <key>AllwardBuildDate</key><string>$ALLWARD_BUILD_DATE</string>
+    <key>AllwardBuildConfiguration</key><string>$CONFIG</string>
+    <key>AllwardBuildProduct</key><string>Mac App Store</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>

@@ -1,5 +1,7 @@
 .build/
 .build-*/
+# Written by sync-to-mac.sh: it describes one transfer of the tree, not the tree.
+.allward-build-info
 .swiftpm/
 __pycache__/
 *.pyc

@@ -358,8 +358,8 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(
-            withTitle: "About Allward", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-            keyEquivalent: "")
+            withTitle: "About Allward", action: #selector(showAbout(_:)), keyEquivalent: "")
+        appMenu.items.last?.target = self
         appMenu.addItem(.separator())
         add(appMenu, "Settings…", #selector(showSettings(_:)), Shortcut.settings)
         add(
@@ -523,6 +523,36 @@ public final class AllwardAppDelegate: NSObject, NSApplicationDelegate {
     @objc public func teleport(_ sender: Any?) { Task { await model.teleportToRoutedDestination() } }
     @objc public func showSettings(_ sender: Any?) { model.keyWindowController?.presentSettings() }
     @objc public func showDiagnostics(_ sender: Any?) { model.keyWindowController?.presentDiagnostics() }
+
+    /// The standard About panel, carrying which revision this is.
+    ///
+    /// A test build looks exactly like every other test build, so the commit goes
+    /// beside the version where the system already shows one, and the rest goes in
+    /// the panel body. This is the About panel and not Settings on purpose:
+    /// build provenance is a statement of fact, and Settings holds settings.
+    @objc public func showAbout(_ sender: Any?) {
+        let info = BuildInfo.current
+        let body = NSMutableAttributedString()
+        let font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        for row in info.details where row.label != "Version" {
+            body.append(
+                NSAttributedString(
+                    string: "\(row.label): \(row.value)\n",
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                    ]))
+        }
+        NSApp.orderFrontStandardAboutPanel(
+            options: [
+                .applicationVersion: info.version,
+                // AppKit renders this in parentheses after the version, which is
+                // exactly where a build identifier belongs.
+                .version: info.commit.map { info.isDirty ? "\($0), modified" : $0 }
+                    ?? "unknown build",
+                .credits: body,
+            ])
+    }
 
     // MARK: Conventional terminal commands
 
