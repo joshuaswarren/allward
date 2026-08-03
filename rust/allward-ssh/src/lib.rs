@@ -17,15 +17,18 @@
 //! Every `extern "C"` function is null-safe: a null handle or a null required
 //! string is a `false` return, never a panic across the ABI.
 
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::{Arc, LazyLock};
+use std::sync::{mpsc as std_mpsc, Arc, LazyLock};
 use std::time::Duration;
 
 use russh::client::{self, Handle};
 use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg};
-use russh::{ChannelMsg, Disconnect};
+use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+
+type ForwardReply<T> = std_mpsc::Sender<T>;
 
 /// Connection lifecycle, mirroring the Swift `ConnectionState` cases this
 /// transport can actually report. Kept as plain integers so the ABI carries no
@@ -37,10 +40,8 @@ pub const ALLWARD_SSH_STATE_CLOSED: u32 = 3;
 
 /// Callbacks into Swift. `context` is passed back verbatim to every one.
 ///
-/// `verify_host_key` returning false rejects the connection, which is how
-/// first-use trust and a fingerprint mismatch both reach the user.
-#[repr(C)]
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct AllwardSSHCallbacks {
     pub context: *mut c_void,
     pub on_state: extern "C" fn(*mut c_void, u32),
@@ -49,18 +50,13 @@ pub struct AllwardSSHCallbacks {
     pub on_error: extern "C" fn(*mut c_void, *const c_char),
     pub verify_host_key:
         extern "C" fn(*mut c_void, *const c_char, *const c_char, *const u8, usize) -> bool,
+    pub on_forward_open:
+        Option<extern "C" fn(*mut c_void, u64, *const c_char, u16)>,
+    pub on_forward_data: Option<extern "C" fn(*mut c_void, u64, *const u8, usize)>,
+    pub on_forward_close: Option<extern "C" fn(*mut c_void, u64)>,
     /// Signs `to_sign` with the private half of the configured public key, and
     /// writes an SSH signature blob to `out_signature`/`out_len`. Returns false to
     /// fail authentication.
-    ///
-    /// This is what decision 39 needs: the key lives in Security.framework or the
-    /// Secure Enclave, and this library never sees its bytes. `algorithm` is the
-    /// negotiated signature algorithm, so the caller knows whether to use SHA-256
-    /// or SHA-512. The buffer must come from `allward_ssh_allocate` so Rust can
-    /// free it.
-    ///
-    /// Null means this session authenticates from a key file instead, which is the
-    /// Developer ID path.
     pub sign: Option<
         extern "C" fn(
             *mut c_void,
@@ -99,6 +95,23 @@ impl AllwardSSHCallbacks {
             .unwrap_or_else(|_| CString::new("ssh error message was not representable").unwrap());
         (self.on_error)(self.context, text.as_ptr());
     }
+    fn forward_open(&self, stream: u64, origin_host: &str, origin_port: u16) {
+        let Some(callback) = self.on_forward_open else { return };
+        let Ok(origin_host) = CString::new(origin_host) else { return };
+        callback(self.context, stream, origin_host.as_ptr(), origin_port);
+    }
+
+    fn forward_data(&self, stream: u64, bytes: &[u8]) {
+        if let Some(callback) = self.on_forward_data {
+            callback(self.context, stream, bytes.as_ptr(), bytes.len());
+        }
+    }
+
+    fn forward_close(&self, stream: u64) {
+        if let Some(callback) = self.on_forward_close {
+            callback(self.context, stream);
+        }
+    }
 }
 
 /// What to open. Strings are borrowed for the duration of the call only.
@@ -125,11 +138,44 @@ pub struct AllwardSSHConfig {
     pub connect_timeout_ms: u64,
 }
 
-/// Commands Swift sends to a live session.
 enum Command {
     Write(Vec<u8>),
     Resize { columns: u32, rows: u32 },
     Close,
+    ForwardRemoteOpen {
+        host: String,
+        port: u16,
+        reply: ForwardReply<Result<(), String>>,
+    },
+    ForwardRemoteClose {
+        host: String,
+        port: u16,
+        reply: ForwardReply<Result<(), String>>,
+    },
+    ForwardLocalOpen {
+        host: String,
+        port: u16,
+        reply: ForwardReply<Result<u64, String>>,
+    },
+    ForwardWrite {
+        stream: u64,
+        bytes: Vec<u8>,
+        reply: ForwardReply<bool>,
+    },
+    ForwardClose {
+        stream: u64,
+        reply: ForwardReply<bool>,
+    },
+}
+
+enum ForwardEvent {
+    Opened {
+        channel: russh::Channel<client::Msg>,
+        origin_host: String,
+        origin_port: u32,
+    },
+    Data { stream: u64, bytes: Vec<u8> },
+    Closed { stream: u64 },
 }
 
 /// An opaque live session. Swift holds this pointer and must free it exactly once.
@@ -146,9 +192,9 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 /// Bridges russh's host-key check to Swift. russh hands us the server's key and
 /// waits; we hand Swift the algorithm, the OpenSSH fingerprint, and the raw blob,
 /// and Swift answers. No `known_hosts` file is consulted, by design: a sandboxed
-/// product cannot read one, which docs/evidence/SANDBOX.md measured.
 struct Client {
     callbacks: AllwardSSHCallbacks,
+    forward_events: mpsc::UnboundedSender<ForwardEvent>,
 }
 
 impl client::Handler for Client {
@@ -174,6 +220,25 @@ impl client::Handler for Client {
             blob.len(),
         );
         Ok(accepted)
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        _connected_port: u32,
+        originator_address: &str,
+        originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        let _ = self.forward_events.send(ForwardEvent::Opened {
+            channel,
+            origin_host: originator_address.to_owned(),
+            origin_port: originator_port,
+        });
+        Ok(())
     }
 }
 
@@ -267,8 +332,11 @@ pub unsafe extern "C" fn allward_ssh_open(
     };
 
     let (sender, receiver) = mpsc::unbounded_channel();
+    let (forward_sender, forward_receiver) = mpsc::unbounded_channel();
     RUNTIME.spawn(async move {
-        if let Err(error) = run_session(opened, callbacks, receiver).await {
+        if let Err(error) =
+            run_session(opened, callbacks, receiver, forward_sender.clone(), forward_receiver).await
+        {
             callbacks.error(&error);
         }
         callbacks.state(ALLWARD_SSH_STATE_CLOSED);
@@ -447,17 +515,50 @@ pub unsafe extern "C" fn allward_ssh_free_buffer(pointer: *mut u8, length: usize
     drop(Vec::from_raw_parts(pointer, length, length));
 }
 
+fn spawn_forward_reader(
+    mut reader: ChannelReadHalf,
+    stream: u64,
+    events: mpsc::UnboundedSender<ForwardEvent>,
+) {
+    RUNTIME.spawn(async move {
+        while let Some(message) = reader.wait().await {
+            match message {
+                ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
+                    if events
+                        .send(ForwardEvent::Data {
+                            stream,
+                            bytes: data.to_vec(),
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                ChannelMsg::Close => break,
+                ChannelMsg::Eof => {}
+                _ => {}
+            }
+        }
+        let _ = events.send(ForwardEvent::Closed { stream });
+    });
+}
+
 async fn run_session(
     opened: Opened,
     callbacks: AllwardSSHCallbacks,
     mut commands: mpsc::UnboundedReceiver<Command>,
+    forward_sender: mpsc::UnboundedSender<ForwardEvent>,
+    mut forward_events: mpsc::UnboundedReceiver<ForwardEvent>,
 ) -> Result<(), String> {
     callbacks.state(ALLWARD_SSH_STATE_CONNECTING);
     let config = Arc::new(client::Config {
         inactivity_timeout: None,
         ..Default::default()
     });
-    let handler = Client { callbacks };
+    let handler = Client {
+        callbacks,
+        forward_events: forward_sender.clone(),
+    };
     let address = (opened.host.clone(), opened.port);
     let mut session = tokio::time::timeout(
         opened.connect_timeout,
@@ -504,6 +605,8 @@ async fn run_session(
     callbacks.state(ALLWARD_SSH_STATE_READY);
 
     let mut exit_code: Option<i32> = None;
+    let mut next_stream = 1u64;
+    let mut forward_streams: HashMap<u64, ChannelWriteHalf<client::Msg>> = HashMap::new();
     loop {
         tokio::select! {
             command = commands.recv() => {
@@ -512,13 +615,79 @@ async fn run_session(
                         if channel.data(&bytes[..]).await.is_err() { break; }
                     }
                     Some(Command::Resize { columns, rows }) => {
-                        // A failed window change is not fatal: the session keeps
-                        // running at the old size, which beats dropping it.
                         let _ = channel.window_change(columns, rows, 0, 0).await;
                     }
-                    // An explicit close is `closed(.explicit)` on the Swift side and
-                    // must not read as an error.
+                    Some(Command::ForwardRemoteOpen { host, port, reply }) => {
+                        let result = session
+                            .tcpip_forward(host, u32::from(port))
+                            .await
+                            .map(|_| ())
+                            .map_err(|error| format!("{error}"));
+                        let _ = reply.send(result);
+                    }
+                    Some(Command::ForwardRemoteClose { host, port, reply }) => {
+                        let result = session
+                            .cancel_tcpip_forward(host, u32::from(port))
+                            .await
+                            .map_err(|error| format!("{error}"));
+                        let _ = reply.send(result);
+                    }
+                    Some(Command::ForwardLocalOpen { host, port, reply }) => {
+                        let result = session
+                            .channel_open_direct_tcpip(host, port as u32, "127.0.0.1", 0)
+                            .await
+                            .map_err(|error| format!("{error}"))
+                            .map(|channel| {
+                                let stream = next_stream;
+                                next_stream = next_stream.saturating_add(1).max(1);
+                                let (reader, writer) = channel.split();
+                                forward_streams.insert(stream, writer);
+                                spawn_forward_reader(reader, stream, forward_sender.clone());
+                                callbacks.forward_open(stream, "127.0.0.1", 0);
+                                stream
+                            });
+                        let _ = reply.send(result);
+                    }
+                    Some(Command::ForwardWrite { stream, bytes, reply }) => {
+                        let ok = match forward_streams.get(&stream) {
+                            Some(writer) => writer.data(&bytes[..]).await.is_ok(),
+                            None => false,
+                        };
+                        let _ = reply.send(ok);
+                    }
+                    Some(Command::ForwardClose { stream, reply }) => {
+                        let ok = if let Some(writer) = forward_streams.remove(&stream) {
+                            writer.close().await.is_ok()
+                        } else {
+                            false
+                        };
+                        if ok { callbacks.forward_close(stream); }
+                        let _ = reply.send(ok);
+                    }
                     Some(Command::Close) | None => break,
+                }
+            }
+            event = forward_events.recv() => {
+                match event {
+                    Some(ForwardEvent::Opened { channel, origin_host, origin_port }) => {
+                        let stream = next_stream;
+                        next_stream = next_stream.saturating_add(1).max(1);
+                        let (reader, writer) = channel.split();
+                        forward_streams.insert(stream, writer);
+                        spawn_forward_reader(reader, stream, forward_sender.clone());
+                        callbacks.forward_open(stream, &origin_host, origin_port.min(u32::from(u16::MAX)) as u16);
+                    }
+                    Some(ForwardEvent::Data { stream, bytes }) => {
+                        if forward_streams.contains_key(&stream) {
+                            callbacks.forward_data(stream, &bytes);
+                        }
+                    }
+                    Some(ForwardEvent::Closed { stream }) => {
+                        if forward_streams.remove(&stream).is_some() {
+                            callbacks.forward_close(stream);
+                        }
+                    }
+                    None => {}
                 }
             }
             message = channel.wait() => {
@@ -528,11 +697,6 @@ async fn run_session(
                     Some(ChannelMsg::ExitStatus { exit_status }) => {
                         exit_code = Some(exit_status as i32);
                     }
-                    // `Eof` means the far side stopped writing, not that the
-                    // channel is done. Breaking here loses `ExitStatus` when the
-                    // server sends it after EOF, which cost the exit code the
-                    // herdr executor reads. Wait for the channel to actually
-                    // close, or for `wait()` to run dry.
                     Some(ChannelMsg::Eof) => {}
                     Some(ChannelMsg::Close) | None => break,
                     Some(_) => {}
@@ -541,6 +705,10 @@ async fn run_session(
         }
     }
 
+    for (stream, writer) in forward_streams {
+        let _ = writer.close().await;
+        callbacks.forward_close(stream);
+    }
     callbacks.exited(exit_code);
     let _ = session
         .disconnect(Disconnect::ByApplication, "", "English")
@@ -568,6 +736,170 @@ pub unsafe extern "C" fn allward_ssh_write(
         std::slice::from_raw_parts(bytes, len).to_vec()
     };
     session.commands.send(Command::Write(payload)).is_ok()
+}
+
+const FORWARD_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn receive_forward_reply<T>(receiver: std_mpsc::Receiver<T>, fallback: T) -> T {
+    receiver
+        .recv_timeout(FORWARD_COMMAND_TIMEOUT)
+        .unwrap_or(fallback)
+}
+
+/// Asks the server to listen on a TCP address and forward new connections to
+/// this client.
+///
+/// # Safety
+/// `session` must be live and `bind_host` must be a valid NUL-terminated UTF-8
+/// string.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_forward_remote_open(
+    session: *mut AllwardSSHSession,
+    bind_host: *const c_char,
+    bind_port: u16,
+) -> bool {
+    if session.is_null() {
+        return false;
+    }
+    let Ok(host) = required_str(bind_host) else { return false };
+    let (reply, receiver) = std_mpsc::channel();
+    if (&*session)
+        .commands
+        .send(Command::ForwardRemoteOpen {
+            host,
+            port: bind_port,
+            reply,
+        })
+        .is_err()
+    {
+        return false;
+    }
+    receive_forward_reply(receiver, Err("forward request timed out".to_owned()))
+        .is_ok()
+}
+
+/// Cancels a TCP address the server was asked to listen on.
+///
+/// # Safety
+/// `session` must be live and `bind_host` must be a valid NUL-terminated UTF-8
+/// string.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_forward_remote_close(
+    session: *mut AllwardSSHSession,
+    bind_host: *const c_char,
+    bind_port: u16,
+) -> bool {
+    if session.is_null() {
+        return false;
+    }
+    let Ok(host) = required_str(bind_host) else { return false };
+    let (reply, receiver) = std_mpsc::channel();
+    if (&*session)
+        .commands
+        .send(Command::ForwardRemoteClose {
+            host,
+            port: bind_port,
+            reply,
+        })
+        .is_err()
+    {
+        return false;
+    }
+    receive_forward_reply(receiver, Err("forward cancellation timed out".to_owned()))
+        .is_ok()
+}
+
+/// Opens a direct-tcpip channel through the server.
+///
+/// Returns a non-zero stream id, or zero when the channel could not be opened.
+///
+/// # Safety
+/// `session` must be live and `target_host` must be a valid NUL-terminated UTF-8
+/// string.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_forward_local_open(
+    session: *mut AllwardSSHSession,
+    target_host: *const c_char,
+    target_port: u16,
+) -> u64 {
+    if session.is_null() {
+        return 0;
+    }
+    let Ok(host) = required_str(target_host) else { return 0 };
+    let (reply, receiver) = std_mpsc::channel();
+    if (&*session)
+        .commands
+        .send(Command::ForwardLocalOpen {
+            host,
+            port: target_port,
+            reply,
+        })
+        .is_err()
+    {
+        return 0;
+    }
+    receive_forward_reply(
+        receiver,
+        Err("direct-tcpip channel open timed out".to_owned()),
+    )
+    .unwrap_or(0)
+}
+
+/// Writes bytes to a direct-tcpip or reverse-forward stream.
+///
+/// # Safety
+/// `session` must be live, and `bytes` must be valid for `len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_forward_write(
+    session: *mut AllwardSSHSession,
+    stream: u64,
+    bytes: *const u8,
+    len: usize,
+) -> bool {
+    if session.is_null() || stream == 0 || (bytes.is_null() && len != 0) {
+        return false;
+    }
+    let payload = if len == 0 {
+        Vec::new()
+    } else {
+        std::slice::from_raw_parts(bytes, len).to_vec()
+    };
+    let (reply, receiver) = std_mpsc::channel();
+    if (&*session)
+        .commands
+        .send(Command::ForwardWrite {
+            stream,
+            bytes: payload,
+            reply,
+        })
+        .is_err()
+    {
+        return false;
+    }
+    receive_forward_reply(receiver, false)
+}
+
+/// Closes a direct-tcpip or reverse-forward stream.
+///
+/// # Safety
+/// `session` must be live.
+#[no_mangle]
+pub unsafe extern "C" fn allward_ssh_forward_close(
+    session: *mut AllwardSSHSession,
+    stream: u64,
+) -> bool {
+    if session.is_null() || stream == 0 {
+        return false;
+    }
+    let (reply, receiver) = std_mpsc::channel();
+    if (&*session)
+        .commands
+        .send(Command::ForwardClose { stream, reply })
+        .is_err()
+    {
+        return false;
+    }
+    receive_forward_reply(receiver, false)
 }
 
 /// Publishes a new PTY window size.

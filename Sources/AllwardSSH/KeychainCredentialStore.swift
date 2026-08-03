@@ -20,12 +20,30 @@ public final class KeychainCredentialStore: SSHCredentialStore, @unchecked Senda
     /// other's identities.
     private let service: String
     private let synchronizable: Bool
+    /// A specific keychain to use instead of the default search list.
+    ///
+    /// This exists so the credential lifecycle can actually be measured. A
+    /// non-interactive process cannot touch the login keychain, which answers
+    /// `errSecInteractionNotAllowed`, and the data-protection keychain that carries
+    /// synchronizable items answers `errSecMissingEntitlement` without a signed
+    /// app. Pointing at a keychain the test created is the only way to exercise
+    /// import, use, rotation, and deletion against a real Keychain rather than a
+    /// double. It is nil in both products.
+    ///
+    /// A file keychain cannot hold synchronizable items, so passing one turns
+    /// syncing off: those runs measure the lifecycle, never iCloud.
+    private let keychain: SecKeychain?
     private let lock = NSLock()
     private var cache: [HostAlias: SecKeyCredential] = [:]
 
-    public init(service: String = "ai.allward.ssh-identity", synchronizable: Bool = true) {
+    public init(
+        service: String = "ai.allward.ssh-identity",
+        synchronizable: Bool = true,
+        keychain: SecKeychain? = nil
+    ) {
         self.service = service
-        self.synchronizable = synchronizable
+        self.synchronizable = synchronizable && keychain == nil
+        self.keychain = keychain
     }
 
     /// Imports a key for a host. The caller supplies a `SecKey`, which is what the
@@ -34,6 +52,9 @@ public final class KeychainCredentialStore: SSHCredentialStore, @unchecked Senda
         let credential = try SecKeyCredential(privateKey: privateKey)
         var attributes = baseQuery(for: host)
         attributes[kSecValueRef as String] = privateKey
+        if let keychain { attributes[kSecUseKeychain as String] = keychain }
+        // Replacing rather than adding beside: two identities for one host would
+        // make which key signs depend on search order.
         SecItemDelete(baseQuery(for: host) as CFDictionary)
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else { throw Self.failure(status, "store the identity") }
@@ -88,10 +109,17 @@ public final class KeychainCredentialStore: SSHCredentialStore, @unchecked Senda
         var query: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: Data("\(service).\(host.rawValue)".utf8),
-            // A synchronizable item cannot use a `ThisDeviceOnly` protection class,
-            // so this is the strongest class compatible with sync.
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
+        if let keychain {
+            // Reads and deletes must be scoped too, or they resolve against the
+            // default search list and a delete silently misses the item it stored.
+            query[kSecMatchSearchList as String] = [keychain] as CFArray
+        } else {
+            // A synchronizable item cannot use a `ThisDeviceOnly` protection class,
+            // so this is the strongest class compatible with sync. It is set only on
+            // the data-protection path, since a file keychain rejects both.
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        }
         if synchronizable {
             query[kSecAttrSynchronizable as String] = kCFBooleanTrue
         }
