@@ -30,7 +30,7 @@ except the Keychain rows: those need a real identity, so pass one with
 | launch `/usr/bin/ssh` | **permitted** | exited 0 |
 | child reads `~/.ssh/config` | **denied** | child inherited the sandbox |
 | Keychain add and read | **permitted** | round-tripped, value matched |
-| Keychain synchronizable (iCloud) | not yet run | added after the run above |
+| Keychain synchronizable (iCloud) | **denied** | `-34018`, a required entitlement isn't present |
 | outgoing TCP | permitted | connected to loopback 22 |
 
 ### What this settles
@@ -67,12 +67,29 @@ ALLWARD_PROBE_IDENTITY="Apple Development: ..." bash fixtures/mas-sandbox-probe/
 `run.sh` prints that instruction itself when signing fails, so the next person
 does not have to rediscover it.
 
-**The `kSecAttrSynchronizable` row is separate and still unrun.** Ordinary keychain
+**`kSecAttrSynchronizable` is refused, and a signing identity does not fix it.**
+The signed run answered `-34018`, `errSecMissingEntitlement`. Ordinary keychain
 access and the data-protection keychain that carries synchronizable items are
-different permissions, so the passing row above does not settle it. The probe now
-covers it, added after the run that produced this table; the next signed run fills
-it in. Until then, iCloud syncing of a key is designed for and documented but not
-measured.
+different permissions, and the passing row above buys nothing for the second: an
+Apple Development identity grants a team identifier, which is what ordinary access
+needed, but not the iCloud Keychain entitlement.
+
+That entitlement is provisioned, not asserted. It requires an App Store or
+iCloud-capable provisioning profile tied to an App ID with the capability enabled,
+which is submission-adjacent work that decision 5 defers. So syncing is not
+something a build flag turns on here.
+
+**This is the one measured fact that argues against decision 39 as written.** The
+decision chose Keychain items marked `kSecAttrSynchronizable` so keys follow the
+user to their other Macs, over the Secure Enclave, and the reason given was that
+sync is worth more than a non-exportable key. That reasoning stands, and the
+mechanism is still correct for a provisioned build, but the capability cannot be
+demonstrated until one exists. Two honest consequences:
+
+- Keys are stored and used correctly today. What is unproven is only whether they
+  appear on a second Mac.
+- Anything that tells a user their keys sync must not say so until this row passes.
+  A promise the code cannot keep is worse than an absent feature.
 
 ### The correction this forced
 

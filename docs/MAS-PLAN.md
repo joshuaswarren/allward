@@ -1,9 +1,9 @@
 # Plan: build the sandboxed MAS product
 
 Status: **every phase has landed.** Two residuals remain, each named next to the
-phase that owns it: reverse port forwarding is half ported, and OQ-14's
-`kSecAttrSynchronizable` row needs one more signed probe run, which only a desktop
-terminal can do. Written 2026-08-02.
+phase that owns it: reverse port forwarding is half ported, and iCloud Keychain
+syncing is refused for want of a provisioned entitlement, which decision 39 should
+be re-weighed against. Written 2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -304,16 +304,14 @@ durable, atomic, refuses a changed key, and reports the expected fingerprint.
   probe added an item and read it back with the value matching, so the earlier
   `errSecInteractionNotAllowed` was the missing team identifier and not a sandbox
   prohibition. Decision 39's premise holds.
-- **Not done:** one attribute. `kSecAttrSynchronizable` is a different permission
-  from ordinary keychain access, since it needs the data-protection keychain, so the
-  passing row above does not settle it. The probe now covers it and the next signed
-  run fills it in. It cannot be run from an ssh session: `codesign` fails with
-  `errSecInternalComponent` even after the login keychain is unlocked, because the
-  key's ACL needs interactive authorisation. Unlocking a keychain is not the same as
-  authorising a tool to use a key in it. Until that row is filled, iCloud syncing is
-  designed for and documented but not measured. The lifecycle probes run against a
-  keychain the test creates, which cannot hold synchronizable items.
-  See [evidence/SANDBOX.md](evidence/SANDBOX.md).
+- **Measured and refused:** `kSecAttrSynchronizable` answers `-34018`,
+  `errSecMissingEntitlement`, in a signed sandboxed build. A signing identity does
+  not fix it: the iCloud Keychain entitlement is provisioned through an App
+  Store or iCloud-capable profile, which is submission-adjacent work decision 5
+  defers. Keys are stored and used correctly; what is unproven is only whether they
+  appear on a second Mac, and no surface may claim they do until this row passes.
+  This is the one measured fact that argues against decision 39 as written, and it
+  is the owner's to weigh. See [evidence/SANDBOX.md](evidence/SANDBOX.md).
 
 ### Phase 6 - archive and validate (landed)
 

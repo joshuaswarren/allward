@@ -2,13 +2,20 @@ import AllwardCore
 import Foundation
 import Security
 
-/// Keys in the Keychain, synchronising over iCloud.
+/// Keys in the Keychain. Syncing is requested, and currently refused.
 ///
 /// Decision 39. Apple documents that from macOS 11 the keychain synchronises
-/// cryptographic keys and not only passwords, so `kSecAttrSynchronizable` gives a
-/// key that follows the user to their other Macs. That costs the `ThisDeviceOnly`
-/// protection classes, `SecAccess` control, and persistent references, which is the
-/// trade the decision accepted.
+/// cryptographic keys and not only passwords, so `kSecAttrSynchronizable` should
+/// give a key that follows the user to their other Macs, at the cost of the
+/// `ThisDeviceOnly` protection classes, `SecAccess` control, and persistent
+/// references.
+///
+/// Measured, that attribute answers `errSecMissingEntitlement` even in a signed
+/// sandboxed build: the iCloud Keychain entitlement is provisioned through an App
+/// Store or iCloud-capable profile, which decision 5 defers. The attribute is set
+/// anyway, because it is correct and costs nothing once provisioning exists, but
+/// nothing may tell a user their keys sync until it does.
+/// See docs/evidence/SANDBOX.md.
 ///
 /// The Secure Enclave is deliberately not used here. It cannot import an existing
 /// key and holds only P-256, so none of the keys a user already has can go into it,

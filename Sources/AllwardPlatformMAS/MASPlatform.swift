@@ -14,7 +14,8 @@ public struct MASPlatform: PlatformServices {
     /// Configured hosts. A sandboxed product cannot read ~/.ssh/config, so this
     /// is the only place an alias resolves.
     public let hosts = RemoteHostDirectory()
-    /// Decision 39: keys in the Keychain, synchronising over iCloud.
+    /// Decision 39: keys in the Keychain. Syncing is requested but refused for
+    /// want of a provisioned entitlement, so keys do not leave this Mac yet.
     public let credentials = KeychainCredentialStore()
     /// Pins survive relaunch, or trust on first use re-trusts a changed key on the
     /// next launch, which is the attack it exists to notice.

@@ -70,3 +70,19 @@ receipt that regenerates and diffs it** - a hand-maintained header drifts, and a
 ABI mismatch corrupts memory instead of failing to compile. `russh` supplies the
 protocol only. Host trust, key import, and known-hosts policy remain ours, which
 SPEC §14 already assigned to us.
+
+**Decision 39 needs re-weighing, on evidence gathered after it was made.** A signed
+sandboxed build can use the Keychain, so the decision's storage half is confirmed.
+Its *syncing* half is refused: `kSecAttrSynchronizable` answers `-34018`,
+`errSecMissingEntitlement`. The iCloud Keychain entitlement is provisioned through
+an App Store or iCloud-capable profile, not asserted in a build, and provisioning is
+submission-adjacent work decision 5 defers. Keys are stored, signed with, rotated,
+and deleted correctly today; only their appearance on a second Mac is unproven.
+
+That matters because syncing was the stated reason for choosing Keychain items over
+the Secure Enclave. The comparison was "a key that follows you" against "a key that
+cannot be exported", and the first half of it is currently unavailable. Nothing is
+broken and no code needs changing, but the owner may want to revisit the trade now
+that its benefit is deferred rather than immediate. Until the entitlement exists, no
+surface may tell a user their keys sync. Evidence:
+[evidence/SANDBOX.md](evidence/SANDBOX.md).
