@@ -74,17 +74,32 @@ different permissions, and the passing row above buys nothing for the second: an
 Apple Development identity grants a team identifier, which is what ordinary access
 needed, but not the iCloud Keychain entitlement.
 
-That entitlement is provisioned, not asserted. It requires an App Store or
-iCloud-capable provisioning profile tied to an App ID with the capability enabled,
-which is submission-adjacent work that decision 5 defers. So syncing is not
-something a build flag turns on here.
+That entitlement is provisioned, not asserted, and it is a **team** entitlement
+rather than a store one. Apple documents that a synchronizable macOS item uses the
+iOS access-group model, and that the access groups come from the app's
+`keychain-access-groups`, its app identifier
+(`com.apple.application-identifier` on macOS), and
+`com.apple.security.application-groups`; Xcode adds the app identifier during
+signing once a team and profile are configured. Our probe embedded no provisioning
+profile, so it had no app identifier, and `-34018` is the expected answer.
 
-**This is the one measured fact that argues against decision 39 as written.** The
-decision chose Keychain items marked `kSecAttrSynchronizable` so keys follow the
-user to their other Macs, over the Secure Enclave, and the reason given was that
-sync is worth more than a non-exportable key. That reasoning stands, and the
-mechanism is still correct for a provisioned build, but the capability cannot be
-demonstrated until one exists. Two honest consequences:
+**Apple does not tie iCloud Keychain syncing to a distribution channel.** Searched
+for and not found: any statement that this is Mac App Store only, and any statement
+that Developer ID can use it. The documented constraint is that sharing is limited
+to apps from a single development team. So the plausible reading is that BOTH
+products can sync once properly signed, which is stronger than App-Store-only, but
+it is `[INFERENCE]` and stays labelled that way until a provisioned build proves it.
+
+Sources: <https://developer.apple.com/documentation/security/ksecattrsynchronizable>,
+<https://developer.apple.com/documentation/security/errsecmissingentitlement>,
+<https://developer.apple.com/documentation/security/sharing-access-to-keychain-items-among-a-collection-of-apps>.
+
+**Decision 39's mechanism is right and its benefit is deferred, not lost.** The
+decision chose `kSecAttrSynchronizable` over the Secure Enclave because a key that
+follows the user beats one that cannot be exported. That reasoning stands, and if
+the entitlement is indeed team-scoped rather than store-scoped it stands for both
+products. What cannot be demonstrated yet is the syncing itself. Two honest
+consequences:
 
 - Keys are stored and used correctly today. What is unproven is only whether they
   appear on a second Mac.

@@ -11,11 +11,13 @@ import Security
 /// references.
 ///
 /// Measured, that attribute answers `errSecMissingEntitlement` even in a signed
-/// sandboxed build: the iCloud Keychain entitlement is provisioned through an App
-/// Store or iCloud-capable profile, which decision 5 defers. The attribute is set
-/// anyway, because it is correct and costs nothing once provisioning exists, but
-/// nothing may tell a user their keys sync until it does.
-/// See docs/evidence/SANDBOX.md.
+/// sandboxed build: a synchronizable item resolves against access groups that come
+/// from an app identifier a provisioning profile supplies, and ours embeds none.
+/// Apple documents a single-development-team constraint and never a distribution
+/// one, so this is not Mac-App-Store-only as far as the documentation goes. The
+/// attribute is set anyway, because it is correct and costs nothing once
+/// provisioning exists, but nothing may tell a user their keys sync until a
+/// provisioned build proves it. See docs/evidence/SANDBOX.md.
 ///
 /// The Secure Enclave is deliberately not used here. It cannot import an existing
 /// key and holds only P-256, so none of the keys a user already has can go into it,

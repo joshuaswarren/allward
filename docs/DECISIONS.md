@@ -71,18 +71,23 @@ ABI mismatch corrupts memory instead of failing to compile. `russh` supplies the
 protocol only. Host trust, key import, and known-hosts policy remain ours, which
 SPEC §14 already assigned to us.
 
-**Decision 39 needs re-weighing, on evidence gathered after it was made.** A signed
-sandboxed build can use the Keychain, so the decision's storage half is confirmed.
-Its *syncing* half is refused: `kSecAttrSynchronizable` answers `-34018`,
-`errSecMissingEntitlement`. The iCloud Keychain entitlement is provisioned through
-an App Store or iCloud-capable profile, not asserted in a build, and provisioning is
-submission-adjacent work decision 5 defers. Keys are stored, signed with, rotated,
-and deleted correctly today; only their appearance on a second Mac is unproven.
+**Decision 39 stands, with its syncing benefit deferred rather than lost.** A signed
+sandboxed build can use the Keychain, so the storage half is confirmed by
+measurement. `kSecAttrSynchronizable` answers `-34018`, `errSecMissingEntitlement`,
+because a synchronizable item resolves against access groups that come from an app
+identifier a provisioning profile supplies, and the probe embedded none. Keys are
+stored, signed with, rotated, and deleted correctly today; only their appearance on a
+second Mac is unproven.
 
-That matters because syncing was the stated reason for choosing Keychain items over
-the Secure Enclave. The comparison was "a key that follows you" against "a key that
-cannot be exported", and the first half of it is currently unavailable. Nothing is
-broken and no code needs changing, but the owner may want to revisit the trade now
-that its benefit is deferred rather than immediate. Until the entitlement exists, no
-surface may tell a user their keys sync. Evidence:
+**This is a team entitlement, not a Mac App Store one, as far as Apple documents it.**
+Apple never states that iCloud Keychain syncing requires App Store distribution, and
+never states that Developer ID can use it either; what it does document is that
+sharing is limited to apps from a single development team. So the plausible reading
+is that both products can sync once properly signed. That is `[INFERENCE]` and must
+stay labelled so until a provisioned build proves it, which is why nothing in this
+repository may tell a user their keys sync yet.
+
+Correction worth recording: an earlier version of this note said the entitlement
+came from "an App Store or iCloud-capable profile", which over-restricted it to one
+product on no evidence. Apple's documentation does not support that. Evidence:
 [evidence/SANDBOX.md](evidence/SANDBOX.md).

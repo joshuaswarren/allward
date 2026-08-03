@@ -2,8 +2,8 @@
 
 Status: **every phase has landed.** Two residuals remain, each named next to the
 phase that owns it: reverse port forwarding is half ported, and iCloud Keychain
-syncing is refused for want of a provisioned entitlement, which decision 39 should
-be re-weighed against. Written 2026-08-02.
+syncing is refused for want of an app identifier a provisioning profile supplies.
+Written 2026-08-02.
 
 This document is self-contained. Everything it cites lives in this repository.
 
@@ -306,12 +306,14 @@ durable, atomic, refuses a changed key, and reports the expected fingerprint.
   prohibition. Decision 39's premise holds.
 - **Measured and refused:** `kSecAttrSynchronizable` answers `-34018`,
   `errSecMissingEntitlement`, in a signed sandboxed build. A signing identity does
-  not fix it: the iCloud Keychain entitlement is provisioned through an App
-  Store or iCloud-capable profile, which is submission-adjacent work decision 5
-  defers. Keys are stored and used correctly; what is unproven is only whether they
-  appear on a second Mac, and no surface may claim they do until this row passes.
-  This is the one measured fact that argues against decision 39 as written, and it
-  is the owner's to weigh. See [evidence/SANDBOX.md](evidence/SANDBOX.md).
+  not fix it. The access groups a synchronizable item needs come from an app
+  identifier that a provisioning profile supplies, and the probe embedded none, so
+  `-34018` is expected. Apple does **not** tie the capability to a distribution
+  channel: it documents a single-development-team constraint, so both products may be
+  able to sync once properly signed, which is `[INFERENCE]` until a provisioned build
+  proves it. Keys are stored and used correctly; only their appearance on a second
+  Mac is unproven, and no surface may claim it until this row passes.
+  See [evidence/SANDBOX.md](evidence/SANDBOX.md).
 
 ### Phase 6 - archive and validate (landed)
 
