@@ -243,6 +243,19 @@ public struct Configuration: Hashable, Sendable {
       try require(!host.alias.rawValue.isEmpty, key: "hosts[\(index)].alias", cause: "Host alias cannot be empty")
       try require(!host.hostname.isEmpty, key: "hosts[\(index)].hostname", cause: "Hostname cannot be empty")
       try require((1...65_535).contains(host.port), key: "hosts[\(index)].port", cause: "Port is out of range")
+      if let identityFile = host.identityFile {
+        try require(
+          !identityFile.isEmpty, key: "hosts[\(index)].identity-file",
+          cause: "Identity file cannot be empty. Remove the key to use no identity.")
+        // Allward writes this file back on every settings change, so a key pasted
+        // where a path belongs would be persisted to disk in plain text by us.
+        // Refusing it at load is the only point where that is still preventable.
+        try require(
+          !identityFile.contains(where: \.isNewline)
+            && !identityFile.uppercased().contains("PRIVATE KEY"),
+          key: "hosts[\(index)].identity-file",
+          cause: "Identity file must be a path to a key, not the key itself")
+      }
     }
     var mappedHosts: Set<HostAlias> = []
     var mappedAdapterServers: Set<AdapterServerReference> = []

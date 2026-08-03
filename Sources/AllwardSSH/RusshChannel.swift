@@ -109,55 +109,76 @@ final class RusshChannel: RemoteChannel, @unchecked Sendable {
 
         let publicKey = credentials?.publicKeyOpenSSH(for: host)
 
-        try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<Void, any Error>) in
-            lock.lock()
-            readyContinuation = waiter
-            lock.unlock()
+        // An open must abandon promptly when its task is cancelled. Without this the
+        // continuation only resumes on connect, authenticate, or timeout, so a
+        // cancelled pane kept a handshake running against a host nobody was waiting
+        // for. `AttemptBound` is the ceiling, not the only way out.
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (waiter: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                readyContinuation = waiter
+                lock.unlock()
 
-            let opened = configuration.hostname.withCString { hostname in
-                configuration.user.withCString { user in
-                    "xterm-256color".withCString { term in
-                        withOptionalCString(configuration.identityFile) { keyPath in
-                            withOptionalCString(command) { commandPointer in
-                                withOptionalCString(publicKey) { publicKeyPointer in
-                                    var config = AllwardSSHConfig(
-                                        host: hostname,
-                                        port: configuration.port,
-                                        user: user,
-                                        term: term,
-                                        columns: UInt32(max(1, geometry.columns)),
-                                        rows: UInt32(max(1, geometry.rows)),
-                                        command: commandPointer,
-                                        want_pty: true,
-                                        private_key_path: keyPath,
-                                        public_key_openssh: publicKeyPointer,
-                                        connect_timeout_ms: UInt64(
-                                            max(1, bound.perAttemptTimeout) * 1000)
-                                    )
-                                    return allward_ssh_open(&config, callbacks)
+                let opened = configuration.hostname.withCString { hostname in
+                    configuration.user.withCString { user in
+                        "xterm-256color".withCString { term in
+                            withOptionalCString(configuration.identityFile) { keyPath in
+                                withOptionalCString(command) { commandPointer in
+                                    withOptionalCString(publicKey) { publicKeyPointer in
+                                        var config = AllwardSSHConfig(
+                                            host: hostname,
+                                            port: configuration.port,
+                                            user: user,
+                                            term: term,
+                                            columns: UInt32(max(1, geometry.columns)),
+                                            rows: UInt32(max(1, geometry.rows)),
+                                            command: commandPointer,
+                                            want_pty: true,
+                                            private_key_path: keyPath,
+                                            public_key_openssh: publicKeyPointer,
+                                            connect_timeout_ms: UInt64(
+                                                max(1, bound.perAttemptTimeout) * 1000)
+                                        )
+                                        return allward_ssh_open(&config, callbacks)
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            guard let opened else {
-                // `on_error` already resumed the waiter with the reason, so there is
-                // nothing to add here; releasing the reference is all that remains.
-                settle(
-                    with: AllwardError(
-                        domain: .transport,
-                        operation: "open SSH session",
-                        cause: "the SSH session could not be created",
-                        retryability: .retryable,
-                        recovery: "Check the host name and try again."
-                    ))
-                return
+                guard let opened else {
+                    // `on_error` already resumed the waiter with the reason, so there
+                    // is nothing to add here; releasing the reference is all that
+                    // remains.
+                    settle(
+                        with: AllwardError(
+                            domain: .transport,
+                            operation: "open SSH session",
+                            cause: "the SSH session could not be created",
+                            retryability: .retryable,
+                            recovery: "Check the host name and try again."
+                        ))
+                    return
+                }
+                lock.lock()
+                session = opened
+                lock.unlock()
             }
-            lock.lock()
-            session = opened
-            lock.unlock()
+        } onCancel: {
+            // Close the session so the far side is not left mid-handshake, then
+            // resume the waiter: a cancelled open is `.cancelled`, which the
+            // presentation layer shows as absence rather than as a failure.
+            close()
+            settle(
+                with: AllwardError(
+                    domain: .transport,
+                    operation: "open SSH session",
+                    cause: "the open was cancelled",
+                    retryability: .cancelled,
+                    recovery: "Open the session again when it is wanted."
+                ))
         }
     }
 
