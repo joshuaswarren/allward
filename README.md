@@ -1,5 +1,7 @@
 # Allward
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink)](https://github.com/sponsors/joshuaswarren)
+
 A native Mac terminal for people who run coding agents on many machines.
 
 Most terminals sort work by process and window. Allward groups local and remote sessions into Rooms. It shows the work that needs you: live agents, plans, open tasks, and permission requests. It points to the pane that owns each item.
@@ -167,6 +169,14 @@ swift test
 - [Plan: sandboxed MAS product](docs/MAS-PLAN.md)
 
 The specs use `MUST`, `SHOULD`, and `MAY` as rule words. Open questions stay marked until a repeatable test closes them.
+
+## Support
+
+Every bit of support helps keep allward alive and free. If you are able, [sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send a Lightning donation to `joshuaswarren@strike.me` to directly fund continued development and new integrations.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge)](https://github.com/sponsors/joshuaswarren)
+
+If financial support is not an option, you can still make a big difference: [star the repo](https://github.com/joshuaswarren/allward), share it, or recommend it to a colleague. Word of mouth is how most people find allward.
 
 ## License
 
